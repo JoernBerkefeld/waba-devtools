@@ -1,0 +1,65 @@
+{
+    "name": "waba-devtools",
+    "version": "0.1.0",
+    "description": "WABA DevTools (wabadev) — retrieve, import from CSV and deploy WhatsApp Business message templates across WABAs and pipeline stages",
+    "author": "Jörn Berkefeld <joern.berkefeld@gmail.com>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/JoernBerkefeld/waba-devtools.git"
+    },
+    "bugs": {
+        "url": "https://github.com/JoernBerkefeld/waba-devtools/issues"
+    },
+    "homepage": "https://github.com/JoernBerkefeld/waba-devtools#readme",
+    "keywords": [
+        "whatsapp",
+        "waba",
+        "whatsapp-business",
+        "message-templates",
+        "meta",
+        "graph-api",
+        "devops",
+        "cli"
+    ],
+    "type": "module",
+    "bin": {
+        "wabadev": "./bin/wabadev.js"
+    },
+    "main": "./lib/index.js",
+    "exports": {
+        ".": "./lib/index.js"
+    },
+    "files": ["bin", "lib", "README.md", "LICENSE"],
+    "scripts": {
+        "test": "node --test test/*.test.js",
+        "lint": "eslint .",
+        "lint:fix": "eslint --fix .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "verify:own-dependencies-latest": "node scripts/verify-own-dependencies-latest.mjs",
+        "preversion": "npm run verify:own-dependencies-latest",
+        "prepare": "husky || true"
+    },
+    "engines": {
+        "node": "^22.22.2 || >=24.15.0"
+    },
+    "lint-staged": {
+        "*.{js,mjs,cjs}": ["eslint --fix"]
+    },
+    "dependencies": {
+        "@joern.berkefeld/csv-parser": "^5.0.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.15.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-jsdoc": "^65.5.0",
+        "eslint-plugin-prettier": "^5.5.7",
+        "eslint-plugin-unicorn": "^80.0.0",
+        "globals": "^17.14.0",
+        "husky": "^9.1.7",
+        "lint-staged": "^17.6.1",
+        "prettier": "^3.10.1"
+    }
+}
