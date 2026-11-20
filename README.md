@@ -1,6 +1,6 @@
 # WABA DevTools (`wabadev`)
 
-Retrieve, import and deploy **WhatsApp Business message templates** across several WhatsApp
+Retrieve and deploy or bulk-CSV-import **WhatsApp Business message templates** across several WhatsApp
 Business Accounts (WABAs) — for example one WABA per pipeline stage (dev → qa → prod).
 
 - Keep templates as JSON files in git and deploy them to every WABA of a stage.
@@ -13,8 +13,8 @@ It talks to Meta's Graph API directly and needs no other tool.
 ## Install
 
 ```bash
-npm install --save-dev waba-devtools
-npx wabadev --help
+npm install -g waba-devtools
+wabadev --help
 ```
 
 Node.js `^22.22.2 || >=24.15.0`.
@@ -124,7 +124,7 @@ your own system user can be assigned to them in step 4. `wabadev check` confirms
 | `graphVersion`              | no       | Graph API version, default `v23.0`.                                                                                      |
 | `templatesDir`              | no       | Folder for template files, default `templates`.                                                                          |
 
-The config never contains tokens.
+The config never contains tokens. A WABA listed twice in the same stage is used once, with a warning.
 
 ## File structure
 
@@ -358,7 +358,8 @@ Good to know:
 
 ## Output and exit codes
 
-`--json` prints the full report as JSON (for scripts and CI).
+`--json` prints the full report as JSON (for scripts and CI). Each source and target has `stage`
+(text) and `stages` (list) — a WABA found in several stages lists all of them in `stages`.
 
 | Exit code | Meaning                                                                                                                                                   |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |

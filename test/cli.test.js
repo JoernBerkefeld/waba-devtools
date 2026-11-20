@@ -128,7 +128,12 @@ describe('wabadev retrieve / deploy', () => {
             await p.cli(['deploy', '--from', 'qa', '--to', 'dev', '-m', 'b', '--json']),
         );
         assert.equal(result.ok, true);
-        assert.deepEqual(result.source, { type: 'waba', stage: 'qa', wabaId: '2' });
+        assert.deepEqual(result.source, {
+            type: 'waba',
+            stage: 'qa',
+            stages: ['qa'],
+            wabaId: '2',
+        });
         assert.deepEqual(
             p.graph.wabas[1].templates
                 .map((t) => `${t.name}/${t.language}`)
@@ -193,6 +198,7 @@ describe('wabadev retrieve / deploy', () => {
         assert.match(noTarget.err, /Missing --to or --to-waba/);
         const mixed = await p.cli(['deploy', '--csv', 'x.csv', '--from-waba', '3', '--to', 'qa']);
         assert.equal(mixed.code, 2);
+        assert.match(mixed.err, /Use either --csv or --from\/--from-waba as the source, not both/);
         const old = await p.cli(['retrieve', '--from', 'prod', '--waba', '3']);
         assert.equal(old.code, 2);
         assert.equal(p.writes().length, 1, 'refused runs send nothing');
@@ -219,7 +225,12 @@ describe('wabadev retrieve / deploy', () => {
             ]),
         );
         assert.equal(result.ok, true);
-        assert.deepEqual(result.source, { type: 'waba', stage: 'prod', wabaId: '4' });
+        assert.deepEqual(result.source, {
+            type: 'waba',
+            stage: 'prod',
+            stages: ['prod'],
+            wabaId: '4',
+        });
         assert.deepEqual(
             result.targets.map((target) => `${target.stage}/${target.wabaId}`),
             ['qa/2', 'prod/3'],
@@ -232,6 +243,41 @@ describe('wabadev retrieve / deploy', () => {
         const files = json(await p.cli(['deploy', '--to-waba', '1', '--json']));
         assert.equal(files.source.type, 'files');
         assert.equal(p.graph.wabas[1].templates.length, 1);
+    });
+
+    it('refuses unknown and ambiguous WABAs and duplicates in a stage, without writes', async () => {
+        const p = project({ 4: [bodyTemplate('b', 'fr', 'B')] });
+        writeFileSync(
+            path.join(p.cwd, '.wabadevrc.json'),
+            JSON.stringify({
+                stages: {
+                    qa: [{ wabaId: '2', tokenEnv: 'T_QA' }],
+                    prod: [
+                        { wabaId: '3', tokenEnv: 'T_PROD' },
+                        { wabaId: '4', tokenEnv: 'T_PROD' },
+                        { wabaId: '3', tokenEnv: 'T_PROD' },
+                    ],
+                    special: [{ wabaId: '3', tokenEnv: 'T_QA' }],
+                },
+            }),
+        );
+        const ambiguous = await p.cli(['deploy', '--from-waba', '4', '--to-waba', '3']);
+        assert.equal(ambiguous.code, 2);
+        assert.match(ambiguous.err, /WABA 3 is in stages prod, special with different tokens/);
+        const unknown = await p.cli(['deploy', '--from-waba', '4', '--to-waba', '9']);
+        assert.equal(unknown.code, 2);
+        assert.match(unknown.err, /WABA 9 is not in \.wabadevrc\.json/);
+        assert.equal(p.writes().length, 0, 'refused runs send nothing');
+
+        // WABA 3 is listed twice in prod: warned about and deployed once.
+        const result = await p.cli(['deploy', '--from-waba', '4', '--to', 'prod', '--json']);
+        assert.equal(result.code, 0);
+        assert.match(result.err, /Warning: .*stage "prod" lists WABA 3 more than once/);
+        assert.deepEqual(
+            json(result).targets.map((target) => target.wabaId),
+            ['3', '4'],
+        );
+        assert.equal(p.writes().length, 1, 'one create in WABA 3, nothing twice');
     });
 
     it('reports blocked templates and failed calls with exit code 1', async () => {
@@ -302,6 +348,40 @@ describe('wabadev --prune', () => {
         const call = p.writes().find((c) => c.method === 'DELETE');
         assert.equal(call.query.name, 'old');
         assert.ok(call.query.hsm_id);
+    });
+
+    it('prunes only the WABAs named with --to-waba', async () => {
+        const p = project({
+            1: [bodyTemplate('keep', 'fr', 'K')],
+            3: [bodyTemplate('keep', 'fr', 'K'), bodyTemplate('old', 'fr', 'O')],
+            4: [bodyTemplate('keep', 'fr', 'K'), bodyTemplate('old', 'fr', 'O')],
+        });
+        const result = json(
+            await p.cli([
+                'deploy',
+                '--from',
+                'dev',
+                '--to-waba',
+                '3',
+                '--prune',
+                '--yes',
+                '--json',
+            ]),
+        );
+        assert.equal(result.ok, true);
+        assert.deepEqual(
+            result.targets.map((target) => target.wabaId),
+            ['3'],
+        );
+        assert.deepEqual(
+            p.graph.wabas[3].templates.map((t) => t.name),
+            ['keep'],
+        );
+        assert.deepEqual(
+            p.graph.wabas[4].templates.map((t) => t.name),
+            ['keep', 'old'],
+            'the other prod WABA is untouched',
+        );
     });
 
     it('without --prune lists target-only templates as extra', async () => {

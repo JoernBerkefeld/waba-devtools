@@ -53,6 +53,7 @@ describe('config', () => {
         assert.throws(() => pickSourceWaba(config, 'prod'), /--from-waba/);
         assert.deepEqual(pickSourceWaba(config, 'prod', '3'), {
             stage: 'prod',
+            stages: ['prod'],
             entry: { wabaId: '3', tokenEnv: 'T_PROD' },
         });
         assert.throws(() => pickSourceWaba(config, 'prod', '9'), /not part of stage/);
@@ -74,6 +75,7 @@ describe('config', () => {
         );
         assert.deepEqual(pickSourceWaba(shared, undefined, '5'), {
             stage: 'qa, uat',
+            stages: ['qa', 'uat'],
             entry: { wabaId: '5', tokenEnv: 'T_NONPROD' },
         });
         assert.throws(
@@ -99,10 +101,32 @@ describe('config', () => {
         );
         assert.throws(() => pickTargetWabas(config, 'prod', ['1', '3']), /WABA 1 is not part/);
         assert.deepEqual(pickTargetWabas(config, undefined, ['3', '1']), [
-            { stage: 'prod', entry: { wabaId: '3', tokenEnv: 'T_PROD' } },
-            { stage: 'dev', entry: { wabaId: '1', tokenEnv: 'T_DEV' } },
+            { stage: 'prod', stages: ['prod'], entry: { wabaId: '3', tokenEnv: 'T_PROD' } },
+            { stage: 'dev', stages: ['dev'], entry: { wabaId: '1', tokenEnv: 'T_DEV' } },
         ]);
         assert.throws(() => pickTargetWabas(config), /Missing --to or --to-waba/);
+    });
+
+    it('keeps a WABA listed twice in one stage once, with a warning', () => {
+        const doubled = validateConfig(
+            {
+                stages: {
+                    prod: [
+                        { wabaId: '7', tokenEnv: 'T_PROD' },
+                        { wabaId: '8', tokenEnv: 'T_PROD' },
+                        { wabaId: '7', tokenEnv: 'T_OTHER' },
+                    ],
+                },
+            },
+            run.root,
+        );
+        assert.deepEqual(doubled.stages.prod, [
+            { wabaId: '7', tokenEnv: 'T_PROD' },
+            { wabaId: '8', tokenEnv: 'T_PROD' },
+        ]);
+        assert.equal(doubled.warnings.length, 1);
+        assert.match(doubled.warnings[0], /stage "prod" lists WABA 7 more than once.*T_PROD/);
+        assert.deepEqual(config.warnings, []);
     });
 
     it('names the missing token variable', () => {
