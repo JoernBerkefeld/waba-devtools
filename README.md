@@ -25,7 +25,7 @@ Before you start, you need:
 
 - the **WABA IDs** — shown in
   [Business settings](https://business.facebook.com/settings) → **Accounts** → **WhatsApp
-  accounts**;
+  accounts**, or found for you by [`wabadev discover`](#discover) once you have a token;
 - an **access token** per environment — see [Access tokens](#access-tokens) for the steps.
 
 Official Meta documentation:
@@ -165,12 +165,14 @@ Typical flow: edit or `retrieve` the files → commit to git → `deploy` them s
 
 ## Commands
 
-| Command                 | What it does                                          |
-| ----------------------- | ----------------------------------------------------- |
-| [`check`](#check)       | Tests the access to every WABA. Changes nothing.      |
-| [`retrieve`](#retrieve) | Downloads the templates of one WABA into files.       |
-| [`import`](#import)     | Turns a CSV file (Google Sheets) into template files. |
-| [`deploy`](#deploy)     | Sends templates to every WABA of a stage.             |
+| Command                 | What it does                                                      |
+| ----------------------- | ----------------------------------------------------------------- |
+| [`discover`](#discover) | Shows the WABAs an access token can reach. Needs no config.       |
+| [`check`](#check)       | Tests the access to every WABA. Changes nothing.                  |
+| [`list`](#list)         | Lists the templates of WABAs. Changes nothing, writes no files.   |
+| [`retrieve`](#retrieve) | Downloads the templates of one WABA into files.                   |
+| [`import`](#import)     | Turns a CSV file (Google Sheets) into template files.             |
+| [`deploy`](#deploy)     | Sends templates to WABAs (every WABA of a stage, or picked ones). |
 
 Options that work with every command:
 
@@ -179,6 +181,25 @@ Options that work with every command:
 | `--json`        | Print the result as JSON (for CI/scripts) | `wabadev check --json` |
 | `-h, --help`    | Show the help                             | `wabadev --help`       |
 | `-v, --version` | Show the installed version                | `wabadev --version`    |
+
+### `discover`
+
+Shows every WABA an access token can manage — with its name and phone numbers. Use it to fill in
+`.wabadevrc.json`. Needs no config file, only the token in an environment variable (or `.env`).
+
+```bash
+wabadev discover --token-env <NAME>
+```
+
+| Option               | Meaning                                          | Example                          |
+| -------------------- | ------------------------------------------------ | -------------------------------- |
+| `--token-env <NAME>` | **Required.** The variable that holds the token. | `--token-env WABA_TOKEN_NONPROD` |
+
+```bash
+wabadev discover --token-env WABA_TOKEN_NONPROD
+#   WABA 111111111111111  Acme Dev  +1 555 0100 (Acme)
+#   WABA 222222222222222  Acme QA   +1 555 0101 (Acme)
+```
 
 ### `check`
 
@@ -196,6 +217,27 @@ wabadev check [--stage <stage>]
 ```bash
 wabadev check              # all stages
 wabadev check --stage prod # only the prod WABAs
+```
+
+### `list`
+
+Lists the templates of one or more WABAs: name, language, category and status. Fast — it skips the
+template content and writes no files.
+
+```bash
+wabadev list --from <stage> | --from-waba <id> | --to <stage> | --to-waba <id>…
+```
+
+| Option             | Meaning                       | Example                       |
+| ------------------ | ----------------------------- | ----------------------------- |
+| `--from <stage>`   | The WABA of this stage.       | `--from dev`                  |
+| `--from-waba <id>` | This WABA.                    | `--from-waba 333333333333333` |
+| `--to <stage>`     | Every WABA of this stage.     | `--to prod`                   |
+| `--to-waba <id>`   | These WABAs. Repeat for more. | `--to-waba 1… --to-waba 2…`   |
+
+```bash
+wabadev list --to prod          # all prod WABAs
+wabadev list --from dev --json  # for scripts
 ```
 
 ### `retrieve`
@@ -286,17 +328,19 @@ Where the templates come from:
 | Another WABA             | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
 | A CSV file               | `wabadev deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
 
-| Option                  | Meaning                                                                                          | Example                       |
-| ----------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------- |
-| `--to <stage>`          | Target: every WABA of this stage.                                                                | `--to qa`                     |
-| `--to-waba <id>`        | Target: only this WABA. Repeat for more. No `--to` needed; with `--to` it must be in that stage. | `--to-waba 444444444444444`   |
-| `--from <stage>`        | Source: the WABA of this stage (instead of the files).                                           | `--from dev`                  |
-| `--from-waba <id>`      | Source: this WABA. No `--from` needed; required when the `--from` stage has several.             | `--from-waba 333333333333333` |
-| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                            | `--csv sheet.csv`             |
-| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                         | `-m order_shipped`            |
-| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                 | `--dry-run`                   |
-| `--prune`               | Also delete templates that exist only in the target. Lists them first.                           | `--prune`                     |
-| `--yes`                 | With `--prune`: really delete.                                                                   | `--prune --yes`               |
+| Option                  | Meaning                                                                                           | Example                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `--to <stage>`          | Target: every WABA of this stage.                                                                 | `--to qa`                                       |
+| `--to-waba <id>`        | Target: only this WABA. Repeat for more. No `--to` needed; with `--to` it must be in that stage.  | `--to-waba 444444444444444`                     |
+| `--from <stage>`        | Source: the WABA of this stage (instead of the files).                                            | `--from dev`                                    |
+| `--from-waba <id>`      | Source: this WABA. No `--from` needed; required when the `--from` stage has several.              | `--from-waba 333333333333333`                   |
+| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                             | `--csv sheet.csv`                               |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                          | `-m order_shipped`                              |
+| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                  | `--dry-run`                                     |
+| `--prune`               | Also delete templates that exist only in the target. Lists them first.                            | `--prune`                                       |
+| `--yes`                 | With `--prune`: really delete.                                                                    | `--prune --yes`                                 |
+| `--backup <folder>`     | Before changing a WABA, save all its templates to `<folder>/<wabaId>/` (see [Backups](#backups)). | `--backup backups/2026-11-20`                   |
+| `--from-dir <folder>`   | Source: template files in this folder instead of `templates/` — e.g. a backup.                    | `--from-dir backups/2026-11-20/444444444444444` |
 
 ```bash
 wabadev deploy --to qa --dry-run                 # preview
@@ -348,6 +392,27 @@ Good to know:
 - With `--csv`, only the body text of existing templates is replaced. Their header, footer and
   buttons stay.
 - One failing template does not stop the others. The report shows Meta's error.
+
+#### Backups
+
+Meta keeps no history of templates: once a template is updated, its old text is gone. With
+`--backup <folder>`, every target WABA that is about to change is saved first — **all** its templates,
+in the same format as `retrieve`, plus a `manifest.json` (date, source, targets). If the backup cannot
+be written, nothing is sent to that WABA. Use a **new folder for every backup** — a folder that is
+not empty is refused, so an earlier backup is never overwritten.
+
+```bash
+wabadev deploy --from qa --to prod --backup backups/2026-11-20
+```
+
+To restore, deploy the backup folder of that WABA back with `--from-dir`:
+
+```bash
+wabadev deploy --from-dir backups/2026-11-20/<wabaId> --to-waba <wabaId> --dry-run   # check first
+wabadev deploy --from-dir backups/2026-11-20/<wabaId> --to-waba <wabaId>
+```
+
+A restore is an edit too: Meta reviews the templates again and counts it against its edit limits.
 
 #### `--prune` safety
 

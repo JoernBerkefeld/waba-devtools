@@ -198,7 +198,7 @@ describe('wabadev retrieve / deploy', () => {
         assert.match(noTarget.err, /Missing --to or --to-waba/);
         const mixed = await p.cli(['deploy', '--csv', 'x.csv', '--from-waba', '3', '--to', 'qa']);
         assert.equal(mixed.code, 2);
-        assert.match(mixed.err, /Use either --csv or --from\/--from-waba as the source, not both/);
+        assert.match(mixed.err, /Use only one source: --csv, --from\/--from-waba or --from-dir/);
         const old = await p.cli(['retrieve', '--from', 'prod', '--waba', '3']);
         assert.equal(old.code, 2);
         assert.equal(p.writes().length, 1, 'refused runs send nothing');

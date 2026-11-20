@@ -75,9 +75,10 @@ function fail(status, message, code) {
  * @param {Object.<string, {token: string, name?: string, templates?: object[], pageSize?: number,
  *   failCreate?: object}>} setup.wabas
  * @param {string} [setup.version]
+ * @param {Object.<string, object>} [setup.tokenInfo] - debug_token answers per token (overrides).
  * @returns {{fetchImpl: typeof fetch, calls: object[], wabas: object}}
  */
-export function createFakeGraph({ wabas, version = 'v23.0' }) {
+export function createFakeGraph({ wabas, version = 'v23.0', tokenInfo = {} }) {
     const byId = new Map(Object.entries(wabas));
     const calls = [];
     let nextId = 9000;
@@ -117,6 +118,9 @@ export function createFakeGraph({ wabas, version = 'v23.0' }) {
             return fail(400, 'Unknown version', 2635);
         }
         const [, id, edge] = parts;
+        if (id === 'debug_token') {
+            return json(200, { data: debugTokenFor(url.searchParams.get('input_token'), auth) });
+        }
         const waba = byId.get(id);
         const owner = waba ?? findTemplate(id)?.waba;
         if (!owner) {
@@ -124,6 +128,9 @@ export function createFakeGraph({ wabas, version = 'v23.0' }) {
         }
         if (auth !== `Bearer ${owner.token}`) {
             return fail(401, 'Invalid OAuth access token', 190);
+        }
+        if (edge === 'phone_numbers' && waba && method === 'GET') {
+            return json(200, { data: waba.phoneNumbers ?? [] });
         }
         if (edge === 'message_templates' && waba) {
             if (method === 'GET') {
@@ -179,6 +186,30 @@ export function createFakeGraph({ wabas, version = 'v23.0' }) {
             return json(200, { success: true });
         }
         return fail(400, 'Unsupported request', 100);
+    }
+
+    /**
+     * Meta's debug_token answer: the WABAs that share the token, or the configured override.
+     *
+     * @param {string} inputToken
+     * @param {string} auth - Authorization header.
+     * @returns {object}
+     */
+    function debugTokenFor(inputToken, auth) {
+        if (auth !== `Bearer ${inputToken}`) {
+            return { is_valid: false };
+        }
+        const override = new Map(Object.entries(tokenInfo)).get(inputToken);
+        if (override) {
+            return override;
+        }
+        const targetIds = [...byId]
+            .filter(([, waba]) => waba.token === inputToken)
+            .map(([wabaId]) => wabaId);
+        return {
+            is_valid: targetIds.length > 0,
+            granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: targetIds }],
+        };
     }
 
     return { fetchImpl, calls, wabas };
