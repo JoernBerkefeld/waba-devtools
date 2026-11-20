@@ -188,12 +188,50 @@ describe('wabadev retrieve / deploy', () => {
         const unknown = await p.cli(['deploy', '--to', 'prod', '--to-waba', '9']);
         assert.equal(unknown.code, 2);
         assert.match(unknown.err, /WABA 9 is not part of stage "prod"/);
-        const orphan = await p.cli(['deploy', '--to', 'qa', '--from-waba', '3']);
-        assert.equal(orphan.code, 2);
-        assert.match(orphan.err, /--from-waba needs --from/);
+        const noTarget = await p.cli(['deploy', '--from-waba', '3']);
+        assert.equal(noTarget.code, 2);
+        assert.match(noTarget.err, /Missing --to or --to-waba/);
+        const mixed = await p.cli(['deploy', '--csv', 'x.csv', '--from-waba', '3', '--to', 'qa']);
+        assert.equal(mixed.code, 2);
         const old = await p.cli(['retrieve', '--from', 'prod', '--waba', '3']);
         assert.equal(old.code, 2);
         assert.equal(p.writes().length, 1, 'refused runs send nothing');
+    });
+
+    it('needs no stage when the WABA flags name the WABAs', async () => {
+        const p = project({ 4: [bodyTemplate('b', 'fr', 'B')] });
+        const retrieved = json(await p.cli(['retrieve', '--from-waba', '4', '--json']));
+        assert.equal(retrieved.stage, 'prod');
+        assert.equal(retrieved.wabaId, '4');
+        assert.ok(existsSync(path.join(p.cwd, 'templates', 'b', 'fr.json')));
+
+        // WABA 4 (prod) → WABA 2 (qa) and WABA 3 (prod), each with its own token.
+        const result = json(
+            await p.cli([
+                'deploy',
+                '--from-waba',
+                '4',
+                '--to-waba',
+                '2',
+                '--to-waba',
+                '3',
+                '--json',
+            ]),
+        );
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.source, { type: 'waba', stage: 'prod', wabaId: '4' });
+        assert.deepEqual(
+            result.targets.map((target) => `${target.stage}/${target.wabaId}`),
+            ['qa/2', 'prod/3'],
+        );
+        assert.equal(p.graph.wabas[2].templates.length, 1);
+        assert.equal(p.graph.wabas[3].templates.length, 1);
+        assert.equal(p.graph.wabas[1].templates.length, 0, 'dev is untouched');
+
+        // From the template files to one WABA, without --to.
+        const files = json(await p.cli(['deploy', '--to-waba', '1', '--json']));
+        assert.equal(files.source.type, 'files');
+        assert.equal(p.graph.wabas[1].templates.length, 1);
     });
 
     it('reports blocked templates and failed calls with exit code 1', async () => {

@@ -49,23 +49,60 @@ describe('config', () => {
     });
 
     it('needs --from-waba for a source stage with several WABAs', () => {
-        assert.equal(pickSourceWaba(config, 'dev').wabaId, '1');
+        assert.equal(pickSourceWaba(config, 'dev').entry.wabaId, '1');
         assert.throws(() => pickSourceWaba(config, 'prod'), /--from-waba/);
-        assert.equal(pickSourceWaba(config, 'prod', '3').wabaId, '3');
+        assert.deepEqual(pickSourceWaba(config, 'prod', '3'), {
+            stage: 'prod',
+            entry: { wabaId: '3', tokenEnv: 'T_PROD' },
+        });
         assert.throws(() => pickSourceWaba(config, 'prod', '9'), /not part of stage/);
         assert.throws(() => pickSourceWaba(config, 'qa'), /Unknown stage "qa"/);
+        assert.throws(() => pickSourceWaba(config), /Missing --from or --from-waba/);
     });
 
-    it('targets all WABAs of a stage, or only the ones named with --to-waba', () => {
+    it('finds a WABA without a stage, unless its stages use different tokens', () => {
+        const shared = validateConfig(
+            {
+                stages: {
+                    qa: [{ wabaId: '5', tokenEnv: 'T_NONPROD' }],
+                    uat: [{ wabaId: '5', tokenEnv: 'T_NONPROD' }],
+                    prod: [{ wabaId: '6', tokenEnv: 'T_PROD' }],
+                    special: [{ wabaId: '6', tokenEnv: 'T_OTHER' }],
+                },
+            },
+            run.root,
+        );
+        assert.deepEqual(pickSourceWaba(shared, undefined, '5'), {
+            stage: 'qa, uat',
+            entry: { wabaId: '5', tokenEnv: 'T_NONPROD' },
+        });
+        assert.throws(
+            () => pickSourceWaba(shared, undefined, '6'),
+            /WABA 6 is in stages prod, special with different tokens; add --from <stage>/,
+        );
+        assert.throws(
+            () => pickTargetWabas(shared, undefined, ['6']),
+            /different tokens; add --to <stage>/,
+        );
+        assert.equal(pickSourceWaba(shared, 'special', '6').entry.tokenEnv, 'T_OTHER');
+        assert.throws(() => pickSourceWaba(shared, undefined, '9'), /WABA 9 is not in/);
+    });
+
+    it('targets all WABAs of a stage, the ones named with --to-waba, or both', () => {
         assert.deepEqual(
-            pickTargetWabas(config, 'prod').map((entry) => entry.wabaId),
+            pickTargetWabas(config, 'prod').map((target) => target.entry.wabaId),
             ['2', '3'],
         );
         assert.deepEqual(
-            pickTargetWabas(config, 'prod', ['3', '3']).map((entry) => entry.wabaId),
+            pickTargetWabas(config, 'prod', ['3', '3']).map((target) => target.entry.wabaId),
             ['3'],
         );
         assert.throws(() => pickTargetWabas(config, 'prod', ['1', '3']), /WABA 1 is not part/);
+        assert.deepEqual(pickTargetWabas(config, undefined, ['3', '1']), [
+            { stage: 'prod', entry: { wabaId: '3', tokenEnv: 'T_PROD' } },
+            { stage: 'dev', entry: { wabaId: '1', tokenEnv: 'T_DEV' } },
+        ]);
+        assert.throws(() => pickTargetWabas(config), /Missing --to or --to-waba/);
     });
 
     it('names the missing token variable', () => {

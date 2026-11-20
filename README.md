@@ -21,6 +21,24 @@ Node.js `^22.22.2 || >=24.15.0`.
 
 ## Quick start
 
+Before you start, you need:
+
+- the **WABA IDs** — shown in
+  [Business settings](https://business.facebook.com/settings) → **Accounts** → **WhatsApp
+  accounts**;
+- an **access token** per environment — see [Access tokens](#access-tokens) for the steps.
+
+Official Meta documentation:
+
+| Topic                                     | Link                                                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Access tokens (system users)              | [Access tokens](https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens)                               |
+| Creating the Meta app                     | [WhatsApp use case](https://developers.facebook.com/documentation/development/create-an-app/whatsapp-use-case)                         |
+| Permissions                               | [Permissions](https://developers.facebook.com/documentation/business-messaging/whatsapp/permissions)                                   |
+| Message templates                         | [Template fundamentals](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview)                  |
+| Template categories (Utility / Marketing) | [Template categorization](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization) |
+| Template review by Meta                   | [Template review](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-review/)                |
+
 1. Create `.wabadevrc.json` in your project folder:
 
    ```json
@@ -51,6 +69,50 @@ Node.js `^22.22.2 || >=24.15.0`.
    npx wabadev deploy --to qa --dry-run
    npx wabadev deploy --to qa
    ```
+
+### Access tokens
+
+`wabadev` needs a **System User access token** from the Meta business portfolio that owns your
+WABAs. One-time setup, done by an admin of that portfolio:
+
+1. **Create a Meta app.** A token always belongs to an app — you need your own, even when your
+   WABAs were connected through a provider such as Salesforce.
+   - [developers.facebook.com](https://developers.facebook.com/apps) → **My Apps** → **Create
+     app**.
+   - Use case: **Connect with customers through WhatsApp**.
+   - Business portfolio: the one that owns your WABAs.
+2. **Create a system user.**
+   - [Business settings](https://business.facebook.com/settings) → **Users** → **System users** →
+     **Add**.
+   - Name: e.g. `wabadev-nonprod`. Role: **Employee** (it then only sees what you assign).
+3. **Give the system user the app.**
+   - Click the system user → **Assign assets** → select your app → tick **Manage app** →
+     **Assign assets**.
+4. **Give the system user each WABA.**
+   - Business settings → **Accounts** → **WhatsApp accounts** → select the WABA → **People** →
+     **Add people** → the system user → **Full control**.
+   - Repeat for every WABA this token should reach.
+5. **Generate the token.**
+   - Click the system user → **Generate token** → select your app.
+   - Expiration: **Never** (otherwise the token stops working after the chosen time).
+   - Permissions: tick **`whatsapp_business_management`** and **`business_management`**.
+   - Copy the token — Meta shows it only once.
+6. **Store and test it.**
+   - Put it into `.env`: `WABA_TOKEN_NONPROD=EAAG...`
+   - Run `wabadev check`.
+
+For production, repeat steps 2–6 with a second system user (e.g. `wabadev-prod`) that only gets the
+prod WABAs. Then a non-production token can never change production.
+
+Where the token lives:
+
+- **Locally:** a `.env` file in the project folder. `wabadev` loads it on start; variables that are
+  already set in your shell win.
+- **CI/CD:** a secret of your pipeline, exposed as the environment variable named in `tokenEnv`.
+- Tokens are never written to files, reports or `--json` output.
+
+WABAs connected through a provider (for example Salesforce) are still owned by your portfolio, so
+your own system user can be assigned to them in step 4. `wabadev check` confirms it works.
 
 ## Configuration — `.wabadevrc.json`
 
@@ -101,29 +163,6 @@ One file = one template in one language:
 
 Typical flow: edit or `retrieve` the files → commit to git → `deploy` them stage by stage.
 
-## Access tokens
-
-`wabadev` uses a **System User access token** from the Meta business portfolio that owns your
-WABAs:
-
-1. In Meta Business Suite go to **Business settings → Users → System users** and create a system
-   user.
-2. Assign it the WABAs (with permission to manage templates) and the Meta app the token is for.
-3. Generate a token for that app with the **`whatsapp_business_management`** permission.
-
-Where the token lives:
-
-- **Locally:** a `.env` file in the project folder. `wabadev` loads it on start; variables that are
-  already set in your shell win.
-- **CI/CD:** a secret of your pipeline, exposed as the environment variable named in `tokenEnv`.
-- Tokens are never written to files, reports or `--json` output.
-
-Recommended: one system user (and token) for production and another for all other stages, so a
-non-production pipeline cannot change production.
-
-WABAs connected through a provider (for example Salesforce) are still owned by your portfolio, so
-your own system user can be assigned to them. Run `wabadev check` to confirm.
-
 ## Commands
 
 | Command                 | What it does                                          |
@@ -165,19 +204,22 @@ Downloads the templates of one WABA into `templates/<name>/<language>.json`. Com
 git.
 
 ```bash
-wabadev retrieve --from <stage> [--from-waba <id>] [-m <name>]
+wabadev retrieve --from <stage> | --from-waba <id> [-m <name>]
 ```
 
-| Option                  | Meaning                                                                                                                         | Example                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `--from <stage>`        | **Required.** The stage to download from.                                                                                       | `--from dev`                              |
-| `--from-waba <id>`      | Which WABA of the stage. Needed when the stage has several WABAs — without it, retrieve stops with an error and writes nothing. | `--from prod --from-waba 333333333333333` |
-| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                                                        | `-m order_shipped -m welcome`             |
+| Option                  | Meaning                                                                              | Example                       |
+| ----------------------- | ------------------------------------------------------------------------------------ | ----------------------------- |
+| `--from <stage>`        | The stage to download from. Works when the stage has exactly one WABA.               | `--from dev`                  |
+| `--from-waba <id>`      | The WABA to download from. No `--from` needed (see [Picking WABAs](#picking-wabas)). | `--from-waba 333333333333333` |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                             | `-m order_shipped -m welcome` |
+
+Give `--from` or `--from-waba` (or both). A stage with several WABAs needs `--from-waba` — without
+it, retrieve stops with an error and writes nothing.
 
 ```bash
-wabadev retrieve --from dev                          # all templates of dev
-wabadev retrieve --from dev -m order_shipped         # just one template
-wabadev retrieve --from prod --from-waba 333333333333333  # prod has 2 WABAs: pick one
+wabadev retrieve --from dev                   # all templates of dev
+wabadev retrieve --from dev -m order_shipped  # just one template
+wabadev retrieve --from-waba 333333333333333  # one WABA of prod
 ```
 
 Good to know:
@@ -223,11 +265,14 @@ are not case-sensitive. Other columns (e.g. `Brand`) are ignored.
 
 ### `deploy`
 
-Makes every WABA of the target stage match the source: creates missing templates and updates
+Makes the target WABAs match the source: creates missing templates and updates
 changed ones. Everything else is left alone.
 
 ```bash
-wabadev deploy --to <stage> [--to-waba <id>] [--from <stage> [--from-waba <id>] | --csv <file>] [-m <name>] [--dry-run] [--prune [--yes]]
+wabadev deploy <target> [<source> | --csv <file>] [-m <name>] [--dry-run] [--prune [--yes]]
+
+# <target>: --to <stage> and/or --to-waba <id>…
+# <source>: --from <stage> and/or --from-waba <id> (default: the template files)
 ```
 
 Where the templates come from:
@@ -235,20 +280,20 @@ Where the templates come from:
 | Source                   | Command                                  | Uses the files on disk?                                  |
 | ------------------------ | ---------------------------------------- | -------------------------------------------------------- |
 | Template files (default) | `wabadev deploy --to qa`                 | Yes — reads `templates/`                                 |
-| Another stage's WABA     | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
+| Another WABA             | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
 | A CSV file               | `wabadev deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
 
-| Option                  | Meaning                                                                          | Example                                   |
-| ----------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| `--to <stage>`          | **Required.** The stage to deploy to — all of its WABAs.                         | `--to qa`                                 |
-| `--to-waba <id>`        | Only this WABA of the `--to` stage. Repeat for more.                             | `--to prod --to-waba 444444444444444`     |
-| `--from <stage>`        | Copy from this stage's WABA instead of the files.                                | `--from dev`                              |
-| `--from-waba <id>`      | With `--from`: which WABA of the source stage. Needed when it has several.       | `--from prod --from-waba 333333333333333` |
-| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).            | `--csv sheet.csv`                         |
-| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                         | `-m order_shipped`                        |
-| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing. | `--dry-run`                               |
-| `--prune`               | Also delete templates that exist only in the target. Lists them first.           | `--prune`                                 |
-| `--yes`                 | With `--prune`: really delete.                                                   | `--prune --yes`                           |
+| Option                  | Meaning                                                                                          | Example                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------- |
+| `--to <stage>`          | Target: every WABA of this stage.                                                                | `--to qa`                     |
+| `--to-waba <id>`        | Target: only this WABA. Repeat for more. No `--to` needed; with `--to` it must be in that stage. | `--to-waba 444444444444444`   |
+| `--from <stage>`        | Source: the WABA of this stage (instead of the files).                                           | `--from dev`                  |
+| `--from-waba <id>`      | Source: this WABA. No `--from` needed; required when the `--from` stage has several.             | `--from-waba 333333333333333` |
+| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                            | `--csv sheet.csv`             |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                         | `-m order_shipped`            |
+| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                 | `--dry-run`                   |
+| `--prune`               | Also delete templates that exist only in the target. Lists them first.                           | `--prune`                     |
+| `--yes`                 | With `--prune`: really delete.                                                                   | `--prune --yes`               |
 
 ```bash
 wabadev deploy --to qa --dry-run                 # preview
@@ -258,11 +303,26 @@ wabadev deploy --from qa --to prod               # copy qa → prod
 wabadev deploy --csv sheet.csv --to dev          # CSV → dev, no files needed
 wabadev deploy --from qa --to prod --prune       # list what would be deleted
 wabadev deploy --from qa --to prod --prune --yes # copy and delete the extras
-wabadev deploy --to prod --to-waba 444444444444444 # files → one prod WABA only
+wabadev deploy --to-waba 444444444444444         # files → one WABA only
 
-# One WABA to one other WABA — even inside the same stage:
-wabadev deploy --from prod --from-waba 333333333333333 --to prod --to-waba 444444444444444
+# One WABA to one other WABA — any stages:
+wabadev deploy --from-waba 333333333333333 --to-waba 444444444444444
 ```
+
+#### Picking WABAs
+
+You can name WABAs directly with `--from-waba` / `--to-waba`. `wabadev` looks each one up in
+`.wabadevrc.json` to find its token:
+
+| The WABA is listed in…                       | Result                                       |
+| -------------------------------------------- | -------------------------------------------- |
+| one stage                                    | used                                         |
+| several stages, all with the same `tokenEnv` | used — the token is the same anyway          |
+| several stages with different `tokenEnv`     | error: add `--from <stage>` / `--to <stage>` |
+| no stage                                     | error: add it to `.wabadevrc.json`           |
+
+With a stage given as well, the WABA must be part of that stage — a useful safety check in
+scripts.
 
 #### What happens to each template
 
