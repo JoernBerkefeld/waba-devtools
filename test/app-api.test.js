@@ -4,6 +4,7 @@ import { after, describe, it } from 'node:test';
 import { main } from '../lib/cli.js';
 import {
     compareBackups,
+    compareWabas,
     compareWithLive,
     createBackup,
     deploy,
@@ -473,7 +474,7 @@ describe('after-backups and comparing restore points', () => {
             [backupAfter, backup],
         ]) {
             const report = await compareBackups(first, second);
-            assert.equal(report.older.phase, 'before');
+            assert.equal(report.before.phase, 'before');
             assert.equal(report.sameWaba, true);
             assert.deepEqual(
                 report.added.map((template) => template.name),
@@ -513,7 +514,7 @@ describe('after-backups and comparing restore points', () => {
             bodyTemplate('a', 'fr', 'Line 1\r\nLine 2'),
         ]);
         const report = await compareBackups(path.join(root, 'new'), path.join(root, 'old'));
-        assert.equal(report.older.wabaId, '2');
+        assert.equal(report.before.wabaId, '2');
         assert.equal(report.sameWaba, false);
         assert.deepEqual(
             report.removed.map((template) => template.name),
@@ -578,8 +579,8 @@ describe('manual restore points and comparing with the live WABA', () => {
         const before = readdirSync(root).length;
         const report = await compareWithLive({ ...common, set: result.sets[0].backup });
         assert.equal(readdirSync(root).length, before, 'the live state is not saved');
-        assert.equal(report.newer.phase, 'live');
-        assert.equal(report.newer.wabaId, '2');
+        assert.equal(report.after.phase, 'live');
+        assert.equal(report.after.wabaId, '2');
         assert.deepEqual(
             [report.added, report.removed].map((list) => list.map((template) => template.name)),
             [['c'], ['b']],
@@ -744,7 +745,7 @@ describe('review fixes: backup text, two-token WABAs, after-backup rule', () => 
             backupDir: run.add('two-tokens-ok'),
         });
         const report = await compareWithLive({ ...common, set: created.sets[0].backup });
-        assert.equal(report.newer.stage, 'qa');
+        assert.equal(report.after.stage, 'qa');
         assert.equal(report.unchanged, 1);
         await assert.rejects(
             compareWithLive({ ...common, set: created.sets[0].backup, wabaId: '2' }),
@@ -792,5 +793,85 @@ describe('review fixes: backup text, two-token WABAs, after-backup rule', () => 
         assert.equal(failing.targets[0].actions[0].result, 'failed');
         assert.equal(failing.targets[0].backupAfter, undefined);
         assert.ok(!existsSync(failing.targets[0].backup.replace(/_before$/, '_after')));
+    });
+});
+
+describe('comparing two WABAs live', () => {
+    it('uses the chosen before and after WABA and saves nothing', async () => {
+        const { readdirSync } = await import('node:fs');
+        const { common, writes } = appSetup({
+            2: [bodyTemplate('a', 'fr', 'A'), bodyTemplate('only_qa', 'fr', 'Q')],
+            3: [bodyTemplate('a', 'fr', 'A prod'), bodyTemplate('only_prod', 'fr', 'P')],
+        });
+        const filesBefore = readdirSync(run.root).length;
+        const report = await compareWabas({ ...common, beforeWaba: '2', afterWaba: '3' });
+        assert.equal(readdirSync(run.root).length, filesBefore, 'nothing is written');
+        assert.equal(writes().length, 0);
+        assert.deepEqual([report.before.wabaId, report.after.wabaId], ['2', '3']);
+        assert.deepEqual(
+            [report.added, report.removed].map((list) => list.map((template) => template.name)),
+            [['only_prod'], ['only_qa']],
+        );
+        assert.deepEqual(report.changed[0].changes, [
+            { field: 'Body text', before: 'A', after: 'A prod' },
+        ]);
+
+        const swapped = await compareWabas({ ...common, beforeWaba: '3', afterWaba: '2' });
+        assert.deepEqual(
+            [swapped.added, swapped.removed].map((list) => list.map((template) => template.name)),
+            [['only_qa'], ['only_prod']],
+            'swapping before and after swaps added and removed',
+        );
+        await assert.rejects(
+            compareWabas({ ...common, beforeWaba: '2', afterWaba: '2' }),
+            /two different/,
+        );
+        await assert.rejects(
+            compareWabas({ ...common, beforeWaba: '2' }),
+            /--before-waba and --after-waba/,
+        );
+    });
+
+    it('wabadev compare --before-waba --after-waba', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')], 3: [] });
+        const cwd = run.add('cli-two-live');
+        mkdirSync(cwd);
+        writeFileSync(
+            path.join(cwd, '.wabadevrc.json'),
+            JSON.stringify({
+                stages: {
+                    qa: [{ wabaId: '2', tokenEnv: 'A' }],
+                    prod: [{ wabaId: '3', tokenEnv: 'B' }],
+                },
+            }),
+        );
+        const out = [];
+        const errors = [];
+        const io = {
+            cwd,
+            environment: { A: 'tok-a', B: 'tok-b' },
+            fetchImpl: graph.fetchImpl,
+            out: (text) => {
+                out.push(text);
+            },
+            err: (text) => {
+                errors.push(text);
+            },
+        };
+        assert.equal(await main(['compare', '--before-waba', '2', '--after-waba', '3'], io), 0);
+        assert.match(
+            out.at(-1),
+            /^Before: WABA 2 \(qa\) right now\nAfter: {2}WABA 3 \(prod\) right now\n/,
+        );
+        assert.match(out.at(-1), /Removed \(1\):\n {2}a \(fr\)/);
+        const twoWabas = ['compare', '--before-waba', '2', '--after-waba', '3'];
+        for (const extraArguments of [['--live'], ['--waba', '4'], ['set']]) {
+            assert.equal(await main([...twoWabas, ...extraArguments], io), 2);
+            assert.match(
+                errors.at(-1),
+                /compares two WABAs live; give no backup set, --live or --waba/,
+            );
+        }
     });
 });

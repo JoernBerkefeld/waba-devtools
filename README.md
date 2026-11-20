@@ -255,18 +255,29 @@ only read, never saved. By default that is the WABA the backup was taken from; `
 with another one (e.g. a qa backup with prod today). Either WABA must be in `.wabadevrc.json`, because its
 token comes from there.
 
+Two WABAs can also be compared as they are **right now** — both are only read, nothing is saved. Here
+there is no time order: you choose which WABA is "before" and which is "after" (e.g. qa before, prod
+after: "what would change in prod").
+
 ```bash
 wabadev compare <backup set> <backup set> [--json]
 wabadev compare <backup set> --live [--waba <id>] [--json]
+wabadev compare --before-waba <id> --after-waba <id> [--json]
 ```
 
-| Option        | Meaning                                                 | Example                         |
-| ------------- | ------------------------------------------------------- | ------------------------------- |
-| `--live`      | Compare the backup with the WABA's templates right now. | `--live`                        |
-| `--waba <id>` | With `--live`: another WABA than the backup's own.      | `--live --waba 444444444444444` |
+| Option               | Meaning                                                 | Example                         |
+| -------------------- | ------------------------------------------------------- | ------------------------------- |
+| `--live`             | Compare the backup with the WABA's templates right now. | `--live`                        |
+| `--waba <id>`        | With `--live`: another WABA than the backup's own.      | `--live --waba 444444444444444` |
+| `--before-waba <id>` | Compare two WABAs right now: this one is "before".      | `--before-waba 222222222222222` |
+| `--after-waba <id>`  | … and this one is "after".                              | `--after-waba 444444444444444`  |
+
+In `--json` output the two sides are `before` and `after` (for two backups: the older and the newer one).
 
 ```bash
 wabadev compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_2026-11-20T18-26-04-123Z_after
+#   Before: WABA 444444444444444 (prod) backup 2026-11-20T18:26:04.512Z before
+#   After:  WABA 444444444444444 (prod) backup 2026-11-20T18:26:09.871Z after
 #   Added (1):
 #     summer_sale (en_US)
 #   Removed (0):
