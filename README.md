@@ -249,6 +249,9 @@ Good to know:
 - For a template file that already exists, only the body text is replaced. Header, footer,
   buttons and category stay.
 - Rows with errors are listed with their row number. All other rows are still imported.
+- The file is cleaned up the same way sfmc-dataloader does it: empty rows are skipped, and empty
+  columns on the right (no header, no values) are removed. A value in such a column is an error.
+  The report says what was removed.
 
 #### CSV columns
 

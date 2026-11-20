@@ -235,6 +235,67 @@ describe('CSV import', () => {
         assert.equal(plain.components[0].example, undefined);
     });
 
+    it('cleans up a messy export like sfmc-dataloader: padding columns, empty rows', async () => {
+        const file = run.add('messy.csv');
+        const csv = [
+            'Brand,Template name,Category,Meta Template,Language,Examples,,',
+            'Acme,wa_one,Utility,Hello,en_US,,,',
+            ',,,,,,,',
+            'Acme,wa_two,Marketing,Hi {{1}},fr,Anna,,',
+            ',,,,,,,',
+            ',,,,,,,',
+        ].join('\n');
+        writeFileSync(file, `${csv}\n`);
+        const { templates, errors, cleanup } = await readCsvTemplates(file);
+        assert.deepEqual(errors, []);
+        assert.deepEqual(
+            templates.map((template) => template.name),
+            ['wa_one', 'wa_two'],
+        );
+        assert.deepEqual(cleanup, { removedColumns: 2, removedRecords: 0, skippedRecords: 3 });
+    });
+
+    for (const [label, newline] of [
+        ['LF', '\n'],
+        ['CRLF', '\r\n'],
+        ['CR-only', '\r'],
+    ]) {
+        it(`reports the sheet row number after empty rows and multi-line cells (${label})`, async () => {
+            const file = run.add(`rows-${label}.csv`);
+            const csv = [
+                'Template name,Category,Meta Template,Language',
+                'wa_multi,Utility,"Line 1',
+                'Line 2",en_US',
+                ',,,',
+                ',,,',
+                'wa_bad,Utility,Hi {{1}},fr',
+                'wa_bad2,Utility,Hi {{1}},it',
+            ].join(newline);
+            writeFileSync(file, `\u{FEFF}${csv}${newline}`);
+            const { templates, errors } = await readCsvTemplates(file);
+            assert.deepEqual(
+                templates.map((template) => template.components[0].text),
+                [`Line 1${newline}Line 2`],
+            );
+            assert.deepEqual(
+                errors.map((error) => error.row),
+                [5, 6],
+            );
+        });
+    }
+
+    it('rejects data in a padding column and a CSV without a header', async () => {
+        const padded = run.add('padded.csv');
+        writeFileSync(
+            padded,
+            'Template name,Category,Meta Template,Language,\nx,Utility,Hi,fr,oops\n',
+        );
+        await assert.rejects(readCsvTemplates(padded), /Could not read CSV .*right-padding/);
+        const empty = run.add('empty.csv');
+        writeFileSync(empty, '');
+        await assert.rejects(readCsvTemplates(empty), /has no header row/);
+    });
+
     it('reports row errors with sheet row numbers and keeps good rows', () => {
         const { templates, errors } = templatesFromRows([
             row('ok', 'fr', 'Hi'),
