@@ -907,3 +907,57 @@ describe('independent before/after backups', () => {
         );
     });
 });
+
+describe('wabadev deploy --expect', () => {
+    it('sends only what the saved preview showed', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { graph } = appSetup({ 1: [bodyTemplate('a', 'fr', 'A')], 2: [], 3: [] });
+        const cwd = run.add('cli-expect');
+        mkdirSync(cwd);
+        writeFileSync(
+            path.join(cwd, '.wabadevrc.json'),
+            JSON.stringify({
+                stages: {
+                    dev: [{ wabaId: '1', tokenEnv: 'A' }],
+                    qa: [{ wabaId: '2', tokenEnv: 'A' }],
+                    prod: [{ wabaId: '3', tokenEnv: 'B' }],
+                },
+            }),
+        );
+        const out = [];
+        const errors = [];
+        const io = {
+            cwd,
+            environment: { A: 'tok-a', B: 'tok-b' },
+            fetchImpl: graph.fetchImpl,
+            out: (text) => {
+                out.push(text);
+            },
+            err: (text) => {
+                errors.push(text);
+            },
+        };
+        const deployArguments = ['deploy', '--from', 'dev', '--to-waba', '2', '--to-waba', '3'];
+        assert.equal(await main([...deployArguments, '--dry-run', '--json'], io), 0);
+        writeFileSync(path.join(cwd, 'preview.json'), out.at(-1));
+
+        // QA changes after the preview: "a" now exists there.
+        graph.wabas[2].templates.push({
+            ...bodyTemplate('a', 'fr', 'other'),
+            id: '5',
+            status: 'APPROVED',
+        });
+        assert.equal(await main([...deployArguments, '--expect', 'preview.json', '--json'], io), 1);
+        const [qa, production] = JSON.parse(out.at(-1)).targets;
+        assert.equal(qa.error, 'changed since preview — run the preview again');
+        assert.equal(production.actions[0].result, 'done');
+        assert.equal(graph.wabas[2].templates[0].components[0].text, 'other', 'QA untouched');
+
+        writeFileSync(path.join(cwd, 'bad.json'), '{"targets": [{"wabaId": 2}]}');
+        assert.equal(await main([...deployArguments, '--expect', 'bad.json'], io), 2);
+        assert.match(errors.at(-1), /is not the --json output of "deploy --dry-run"/);
+        writeFileSync(path.join(cwd, 'real.json'), JSON.stringify({ dryRun: false, targets: [] }));
+        assert.equal(await main([...deployArguments, '--expect', 'real.json'], io), 2);
+        assert.match(errors.at(-1), /from a real deploy/);
+    });
+});

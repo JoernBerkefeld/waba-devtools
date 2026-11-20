@@ -423,8 +423,9 @@ Where the templates come from:
 | `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                                   | `--csv sheet.csv`                                  |
 | `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                                | `-m order_shipped`                                 |
 | `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                        | `--dry-run`                                        |
-| `--prune`               | Also delete templates that exist only in the target. Lists them first.                                  | `--prune`                                          |
+| `--prune`               | Also delete templates that exist only in the target (only with `--yes`; preview with `--dry-run`).      | `--prune`                                          |
 | `--yes`                 | With `--prune`: really delete.                                                                          | `--prune --yes`                                    |
+| `--expect <file>`       | Send only what a previous `--dry-run` showed (see [Confirmed preview](#confirmed-preview)).             | `--expect preview.json`                            |
 | `--backup <folder>`     | Before changing a WABA, save all its templates as a backup set in `<folder>` (see [Backups](#backups)). | `--backup backups`                                 |
 | `--backup-after`        | With `--backup`: also save each changed WABA after the changes (`…_after`).                             | `--backup backups --backup-after`                  |
 | `--from-dir <folder>`   | Source: template files in this folder instead of `templates/` — e.g. a backup set.                      | `--from-dir backups/444…_2026-11-20T18-26-04-123Z` |
@@ -435,8 +436,8 @@ wabadev deploy --to qa                           # all files → every qa WABA
 wabadev deploy --to prod -m order_shipped        # one template only
 wabadev deploy --from qa --to prod               # copy qa → prod
 wabadev deploy --csv sheet.csv --to dev          # CSV → dev, no files needed
-wabadev deploy --from qa --to prod --prune       # list what would be deleted
-wabadev deploy --from qa --to prod --prune --yes # copy and delete the extras
+wabadev deploy --from qa --to prod --prune --dry-run  # preview, incl. what would be deleted
+wabadev deploy --from qa --to prod --prune --yes      # copy and delete the extras
 wabadev deploy --to-waba 444444444444444         # files → one WABA only
 
 # One WABA to one other WABA — any stages:
@@ -525,6 +526,25 @@ wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_befor
 - If the after-backup fails, the changes stay sent; the report shows a WARNING.
 - Restore points without a deployment: [`wabadev backup`](#backup) (sets named `…_manual`).
 
+#### Confirmed preview
+
+Between a preview and the real run, someone else may change a WABA. With `--expect`, the real run sends
+**only what the preview showed**: save the `--json` output of `deploy --dry-run`, review it, then pass
+it to the real deploy with the same options.
+
+```bash
+wabadev deploy --from qa --to prod --dry-run --json > preview.json
+wabadev deploy --from qa --to prod --expect preview.json
+```
+
+- For each WABA, the creates, updates and deletes (by name and language) must be exactly the ones in
+  the preview. If anything changed, **nothing** is sent to that WABA and it reports
+  `changed since preview — run the preview again` (exit code 1). Other WABAs are not affected.
+- A WABA that was not in the preview gets nothing if it would need changes.
+- The file is the whole `--json` report of `deploy --dry-run`, or just its `targets` list:
+  `[{ "wabaId": "…", "actions": [{ "name": "…", "language": "…", "action": "create" }] }]`.
+  Other fields are ignored. A report of a real (not dry-run) deploy is refused.
+
 #### `--prune` safety
 
 - Works with the template files and with `--from` — whenever the whole set is deployed.
@@ -532,7 +552,8 @@ wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_befor
   source" would not mean "should be deleted".
 - Refused when the source has no templates.
 - Media, authentication and carousel templates are never deleted.
-- Without `--yes`, nothing is deleted — you only see the list.
+- Without `--yes`, nothing is deleted — but creates and updates **are** sent. To see everything first,
+  use `--prune --dry-run`.
 - Meta may block a deleted template's name for a while, so it cannot be created again right away.
 
 ## Output and exit codes
