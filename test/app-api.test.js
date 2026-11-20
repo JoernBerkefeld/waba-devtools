@@ -4,8 +4,11 @@ import { after, describe, it } from 'node:test';
 import { main } from '../lib/cli.js';
 import {
     compareBackups,
+    compareWithLive,
+    createBackup,
     deploy,
     discoverWabas,
+    fieldChanges,
     listTemplates,
     validateConfig,
 } from '../lib/index.js';
@@ -540,5 +543,254 @@ describe('after-backups and comparing restore points', () => {
             await main(['compare', backup], { cwd: run.root, out: () => {}, err: () => {} }),
             2,
         );
+    });
+});
+
+describe('manual restore points and comparing with the live WABA', () => {
+    it('creates restore points without deploying, then compares one with the live WABA', async () => {
+        const { readdirSync } = await import('node:fs');
+        const { common, graph, writes } = appSetup({
+            2: [bodyTemplate('a', 'fr', 'A'), bodyTemplate('b', 'fr', 'B')],
+            3: [bodyTemplate('x', 'fr', 'X')],
+        });
+        const root = run.add('manual');
+        const result = await createBackup({ ...common, wabaIds: ['2', '3'], backupDir: root });
+        assert.equal(result.ok, true);
+        assert.equal(writes().length, 0, 'a restore point sends nothing');
+        assert.deepEqual(
+            result.sets.map((set) => [set.wabaId, set.templateCount]),
+            [
+                ['2', 2],
+                ['3', 1],
+            ],
+        );
+        assert.match(path.basename(result.sets[0].backup), /^2_.+Z_manual$/);
+
+        // Someone changes QA afterwards.
+        graph.wabas[2].templates[0].components[0].text = 'A changed';
+        graph.wabas[2].templates.pop();
+        graph.wabas[2].templates.push({
+            ...bodyTemplate('c', 'fr', 'C'),
+            id: '77',
+            status: 'PENDING',
+        });
+
+        const before = readdirSync(root).length;
+        const report = await compareWithLive({ ...common, set: result.sets[0].backup });
+        assert.equal(readdirSync(root).length, before, 'the live state is not saved');
+        assert.equal(report.newer.phase, 'live');
+        assert.equal(report.newer.wabaId, '2');
+        assert.deepEqual(
+            [report.added, report.removed].map((list) => list.map((template) => template.name)),
+            [['c'], ['b']],
+        );
+        assert.deepEqual(report.changed[0].changes, [
+            { field: 'Body text', before: 'A', after: 'A changed' },
+        ]);
+
+        // The same backup against another WABA (QA → prod drift).
+        const drift = await compareWithLive({ ...common, set: result.sets[0].backup, wabaId: '3' });
+        assert.equal(drift.sameWaba, false);
+        await assert.rejects(createBackup({ ...common, wabaIds: ['2'] }), /Missing --backup/);
+        await assert.rejects(
+            createBackup({ ...common, backupDir: root }),
+            /Missing --stage or --waba/,
+        );
+    });
+
+    it('wabadev backup and wabadev compare --live', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')] });
+        const cwd = run.add('cli-manual');
+        mkdirSync(cwd);
+        writeFileSync(
+            path.join(cwd, '.wabadevrc.json'),
+            JSON.stringify({ stages: { qa: [{ wabaId: '2', tokenEnv: 'T' }] } }),
+        );
+        const out = [];
+        const io = {
+            cwd,
+            environment: { T: 'tok-a' },
+            fetchImpl: graph.fetchImpl,
+            out: (text) => {
+                out.push(text);
+            },
+            err: () => {},
+        };
+        assert.equal(await main(['backup', '--stage', 'qa', '--backup', 'bk', '--json'], io), 0);
+        const [set] = JSON.parse(out.at(-1)).sets;
+        graph.wabas[2].templates[0].components[0].text = 'B';
+        assert.equal(await main(['compare', set.backup, '--live'], io), 0);
+        assert.match(out.at(-1), /Body text:\n {6}before: A\n {6}after: {2}B/);
+        assert.equal(
+            await main(['compare', set.backup, '--live', '--waba', '2', '--waba', '3'], io),
+            2,
+        );
+        assert.equal(await main(['compare', set.backup, 'x', '--live'], io), 2);
+        assert.equal(await main(['compare', set.backup, set.backup, '--waba', '2'], io), 2);
+    });
+});
+
+/**
+ * @param {string} named - Example for the named header variable.
+ * @returns {object}
+ */
+function namedHeaderTemplate(named) {
+    return {
+        ...bodyTemplate('x', 'fr', 'B'),
+        parameter_format: 'NAMED',
+        components: [
+            {
+                type: 'HEADER',
+                format: 'TEXT',
+                text: 'Hi {{name}}',
+                example: { header_text_named_params: [{ param_name: 'name', example: named }] },
+            },
+            { type: 'BODY', text: 'B' },
+        ],
+    };
+}
+
+/**
+ * @param {number} minutes - A footer setting without a field of its own.
+ * @returns {object}
+ */
+function footerSettingTemplate(minutes) {
+    return {
+        ...bodyTemplate('x', 'fr', 'B'),
+        components: [
+            { type: 'BODY', text: 'B' },
+            { type: 'FOOTER', code_expiration_minutes: minutes },
+        ],
+    };
+}
+
+/**
+ * @param {string[]} values - Body examples.
+ * @returns {object}
+ */
+function examplesTemplate(values) {
+    return {
+        ...bodyTemplate('x', 'fr', '{{1}} {{2}}'),
+        components: [{ type: 'BODY', text: '{{1}} {{2}}', example: { body_text: [values] } }],
+    };
+}
+
+describe('compare field details', () => {
+    it('never reports a real change as unchanged', () => {
+        assert.equal(
+            fieldChanges(namedHeaderTemplate('Ann'), namedHeaderTemplate('Bob'))[0].field,
+            'Header named examples',
+        );
+        assert.equal(
+            fieldChanges(footerSettingTemplate(5), footerSettingTemplate(10))[0].field,
+            'Footer – other settings',
+        );
+        assert.deepEqual(
+            fieldChanges(examplesTemplate(['a, b', 'c']), examplesTemplate(['a', 'b, c']))[0],
+            { field: 'Body examples', before: '["a, b","c"]', after: '["a","b, c"]' },
+        );
+    });
+});
+
+describe('review fixes: backup text, two-token WABAs, after-backup rule', () => {
+    it('prints readable lines for wabadev backup', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')] });
+        const cwd = run.add('cli-backup-text');
+        mkdirSync(cwd);
+        writeFileSync(
+            path.join(cwd, '.wabadevrc.json'),
+            JSON.stringify({ stages: { qa: [{ wabaId: '2', tokenEnv: 'T' }] } }),
+        );
+        const out = [];
+        const io = {
+            cwd,
+            environment: { T: 'tok-a' },
+            fetchImpl: graph.fetchImpl,
+            out: (text) => {
+                out.push(text);
+            },
+            err: () => {},
+        };
+        assert.equal(await main(['backup', '--waba', '2', '--backup', 'bk'], io), 0);
+        assert.match(out[0], /^ {2}OK {6}qa {2}WABA 2 → .+2_.+Z_manual \(1 templates\)$/);
+    });
+
+    it('uses the backup stage for a WABA listed in two stages with different tokens', async () => {
+        const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')] });
+        const config = validateConfig(
+            {
+                stages: {
+                    qa: [{ wabaId: '2', tokenEnv: 'GOOD' }],
+                    other: [{ wabaId: '2', tokenEnv: 'OTHER' }],
+                },
+            },
+            run.root,
+        );
+        const common = {
+            cwd: run.root,
+            config,
+            environment: { GOOD: 'tok-a', OTHER: 'tok-x' },
+            fetchImpl: graph.fetchImpl,
+        };
+        await assert.rejects(
+            createBackup({ ...common, wabaIds: ['2'], backupDir: run.add('two-tokens') }),
+            /different tokens; add --stage <stage>/,
+        );
+        const created = await createBackup({
+            ...common,
+            stage: 'qa',
+            backupDir: run.add('two-tokens-ok'),
+        });
+        const report = await compareWithLive({ ...common, set: created.sets[0].backup });
+        assert.equal(report.newer.stage, 'qa');
+        assert.equal(report.unchanged, 1);
+        await assert.rejects(
+            compareWithLive({ ...common, set: created.sets[0].backup, wabaId: '2' }),
+            /list it in one stage only/,
+        );
+    });
+
+    it('writes no after set when nothing was actually sent', async () => {
+        const { existsSync } = await import('node:fs');
+        const { common, graph } = appSetup({
+            1: [bodyTemplate('keep', 'fr', 'K'), bodyTemplate('new', 'fr', 'N')],
+            2: [bodyTemplate('keep', 'fr', 'K'), bodyTemplate('old', 'fr', 'O')],
+            3: [bodyTemplate('keep', 'fr', 'K'), bodyTemplate('old', 'fr', 'O')],
+        });
+        // Only a delete is planned (source = the set without "new"), not confirmed with yes.
+        graph.wabas[1].templates.pop();
+        const onlyDelete = await deploy({
+            ...common,
+            fromWaba: '1',
+            toWabas: ['3'],
+            prune: true,
+            backupDir: run.add('after-none-1'),
+            backupAfter: true,
+        });
+        const [target] = onlyDelete.targets;
+        assert.equal(target.actions.at(-1).result, 'not run (add --yes)');
+        assert.ok(target.backup, 'the before set is still written');
+        assert.equal(target.backupAfter, undefined);
+        graph.wabas[1].templates.push({
+            ...bodyTemplate('new', 'fr', 'N'),
+            id: '88',
+            status: 'APPROVED',
+        });
+
+        // Every send fails.
+        graph.wabas[2].failCreate = { new: { message: 'Invalid parameter', code: 100 } };
+        const failing = await deploy({
+            ...common,
+            fromWaba: '1',
+            toWabas: ['2'],
+            names: ['new'],
+            backupDir: run.add('after-none-2'),
+            backupAfter: true,
+        });
+        assert.equal(failing.targets[0].actions[0].result, 'failed');
+        assert.equal(failing.targets[0].backupAfter, undefined);
+        assert.ok(!existsSync(failing.targets[0].backup.replace(/_before$/, '_after')));
     });
 });

@@ -171,6 +171,7 @@ Typical flow: edit or `retrieve` the files → commit to git → `deploy` them s
 | [`check`](#check)       | Tests the access to every WABA. Changes nothing.                  |
 | [`list`](#list)         | Lists the templates of WABAs. Changes nothing, writes no files.   |
 | [`compare`](#compare)   | Compares two backups: added, removed and changed templates.       |
+| [`backup`](#backup)     | Saves a restore point of WABAs now, without deploying.            |
 | [`retrieve`](#retrieve) | Downloads the templates of one WABA into files.                   |
 | [`import`](#import)     | Turns a CSV file (Google Sheets) into template files.             |
 | [`deploy`](#deploy)     | Sends templates to WABAs (every WABA of a stage, or picked ones). |
@@ -249,9 +250,20 @@ set is always "before", whatever order you give them in, so a deleted template n
 Line-ending differences do not count. Two sets of different WABAs can be compared too (e.g. qa vs
 prod).
 
+With `--live`, one backup set is compared with what is in the WABA **right now** — the live state is
+only read, never saved. By default that is the WABA the backup was taken from; `--waba <id>` compares
+with another one (e.g. a qa backup with prod today). Either WABA must be in `.wabadevrc.json`, because its
+token comes from there.
+
 ```bash
 wabadev compare <backup set> <backup set> [--json]
+wabadev compare <backup set> --live [--waba <id>] [--json]
 ```
+
+| Option        | Meaning                                                 | Example                         |
+| ------------- | ------------------------------------------------------- | ------------------------------- |
+| `--live`      | Compare the backup with the WABA's templates right now. | `--live`                        |
+| `--waba <id>` | With `--live`: another WABA than the backup's own.      | `--live --waba 444444444444444` |
 
 ```bash
 wabadev compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_2026-11-20T18-26-04-123Z_after
@@ -264,6 +276,25 @@ wabadev compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_20
 #         before: Hi {{1}}, your order shipped.
 #         after:  Hi {{1}}, your order {{2}} shipped.
 #   Unchanged: 41
+```
+
+### `backup`
+
+Saves a restore point **now**, without deploying anything: one backup set per WABA, named
+`<wabaId>_<time>_manual` (see [Backups](#backups)).
+
+```bash
+wabadev backup --stage <stage> | --waba <id>… --backup <folder> [--json]
+```
+
+| Option              | Meaning                                 | Example                  |
+| ------------------- | --------------------------------------- | ------------------------ |
+| `--stage <stage>`   | Every WABA of this stage.               | `--stage prod`           |
+| `--waba <id>`       | This WABA. Repeat for more.             | `--waba 444444444444444` |
+| `--backup <folder>` | **Required.** Where the backup sets go. | `--backup backups`       |
+
+```bash
+wabadev backup --stage prod --backup backups
 ```
 
 ### `retrieve`
@@ -479,7 +510,9 @@ wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_befor
 - A restore is an edit too: Meta reviews the templates again and counts it against its edit limits.
 - Templates created after the backup stay; add `--prune --yes` to get back exactly the saved set.
 - Media, authentication and carousel templates are saved, but cannot be restored (`skipped`).
-- `--backup` does nothing together with `--dry-run`.
+- `--backup` does nothing together with `--dry-run`; `--backup-after` needs `--backup`.
+- If the after-backup fails, the changes stay sent; the report shows a WARNING.
+- Restore points without a deployment: [`wabadev backup`](#backup) (sets named `…_manual`).
 
 #### `--prune` safety
 
