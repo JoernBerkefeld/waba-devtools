@@ -4,6 +4,7 @@ import {
     assertSafeIdentity,
     comparableContent,
     mergeBody,
+    mergeParts,
     normalizeTemplate,
     unsupportedReason,
 } from '../lib/normalize.js';
@@ -88,11 +89,11 @@ describe('normalizeTemplate', () => {
 
 /**
  * @param {object} template
- * @param {boolean} [isBodyOnly]
+ * @param {boolean} [isBodyOnly] - CSV row: only the BODY counts.
  * @returns {object}
  */
 function source(template, isBodyOnly) {
-    return { template: normalizeTemplate(template), bodyOnly: isBodyOnly };
+    return { template: normalizeTemplate(template), parts: isBodyOnly ? ['BODY'] : undefined };
 }
 
 describe('planDeploy', () => {
@@ -222,5 +223,74 @@ describe('planDeploy', () => {
         const [del] = planDeploy({ source: [], target, fullSet: true, prune: true });
         assert.equal(del.action, 'delete');
         assert.equal(del.templateId, '5');
+    });
+});
+
+describe('line endings', () => {
+    it('treats \r\n and \r like \n when comparing', () => {
+        const live = { ...bodyTemplate('x', 'fr', 'Line 1\nLine 2'), id: '1', status: 'APPROVED' };
+        for (const text of ['Line 1\r\nLine 2', 'Line 1\rLine 2']) {
+            const [action] = planDeploy({
+                source: [source(bodyTemplate('x', 'fr', text))],
+                target: [live],
+            });
+            assert.equal(action.action, 'unchanged');
+        }
+        const crlf = normalizeTemplate(bodyTemplate('x', 'fr', 'a\r\nb'));
+        const lf = normalizeTemplate(bodyTemplate('x', 'fr', 'a\nb'));
+        assert.equal(comparableContent(crlf), comparableContent(lf));
+    });
+});
+
+describe('mergeParts', () => {
+    const base = normalizeTemplate({
+        ...bodyTemplate('x', 'fr', 'old'),
+        components: [
+            { type: 'BODY', text: 'old' },
+            { type: 'CUSTOM', text: 'unknown kind' },
+            {
+                type: 'BUTTONS',
+                buttons: [
+                    { type: 'URL', text: 'Track', url: 'https://ex.com' },
+                    { type: 'QUICK_REPLY', text: 'Old reply' },
+                    { type: 'PHONE_NUMBER', text: 'Call', phone_number: '+15550100' },
+                ],
+            },
+        ],
+    });
+
+    it('replaces only the button types the sheet has columns for', () => {
+        const source = normalizeTemplate({
+            ...bodyTemplate('x', 'fr', 'new'),
+            components: [
+                { type: 'BODY', text: 'new' },
+                { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Yes' }] },
+            ],
+        });
+        const merged = mergeParts(base, source, ['BODY', 'BUTTON:QUICK_REPLY']);
+        assert.deepEqual(
+            merged.components.map((component) => component.type),
+            ['BODY', 'BUTTONS', 'CUSTOM'],
+            'unknown component types go last',
+        );
+        assert.deepEqual(
+            merged.components[1].buttons.map((button) => button.text),
+            ['Yes', 'Track', 'Call'],
+            'quick replies first, URL and call buttons kept',
+        );
+    });
+
+    it('drops the BUTTONS component when no button is left', () => {
+        const source = normalizeTemplate(bodyTemplate('x', 'fr', 'new'));
+        const merged = mergeParts(base, source, [
+            'BODY',
+            'BUTTON:QUICK_REPLY',
+            'BUTTON:URL',
+            'BUTTON:PHONE_NUMBER',
+        ]);
+        assert.deepEqual(
+            merged.components.map((component) => component.type),
+            ['BODY', 'CUSTOM'],
+        );
     });
 });

@@ -229,7 +229,7 @@ describe('CSV import', () => {
         assert.equal(offer.parameter_format, 'POSITIONAL');
         assert.equal(
             offer.components[0].text,
-            'Ciao {{1}}, congratulazioni 🎉!\r\nTi ho inviato {{2}}.',
+            'Ciao {{1}}, congratulazioni 🎉!\nTi ho inviato {{2}}.',
         );
         assert.deepEqual(offer.components[0].example, { body_text: [['Anna', "un'offerta"]] });
         assert.equal(plain.components[0].example, undefined);
@@ -275,7 +275,7 @@ describe('CSV import', () => {
             const { templates, errors } = await readCsvTemplates(file);
             assert.deepEqual(
                 templates.map((template) => template.components[0].text),
-                [`Line 1${newline}Line 2`],
+                ['Line 1\nLine 2'],
             );
             assert.deepEqual(
                 errors.map((error) => error.row),
@@ -324,6 +324,129 @@ describe('CSV import', () => {
             () =>
                 templatesFromRows([{ 'template name': 'x', category: 'Utility', language: 'fr' }]),
             /"meta template"/,
+        );
+    });
+});
+
+/**
+ * A full-column CSV row (keys are lower-case headers).
+ *
+ * @param {object} [cells]
+ * @returns {object}
+ */
+function fullRow(cells = {}) {
+    return {
+        'template name': 'order_shipped',
+        category: 'Utility',
+        language: 'en_US',
+        body: 'Hi {{1}}, order {{2}} shipped.',
+        'body examples': 'Jane|A-1234',
+        header: 'Your order {{1}}',
+        'header example': 'A-1234',
+        footer: 'Reply STOP to opt out',
+        'quick replies': 'Yes | No',
+        'url button': 'Track|https://ex.com/t/{{1}}',
+        'url example': 'A-1234',
+        'call button': 'Call us|+1 555 0100',
+        ...cells,
+    };
+}
+
+describe('CSV header, footer and buttons', () => {
+    it('builds every part and reports which parts the sheet defines', () => {
+        const { templates, errors, parts } = templatesFromRows([fullRow()]);
+        assert.deepEqual(errors, []);
+        assert.deepEqual(parts, [
+            'BODY',
+            'HEADER',
+            'FOOTER',
+            'BUTTON:QUICK_REPLY',
+            'BUTTON:URL',
+            'BUTTON:PHONE_NUMBER',
+        ]);
+        assert.deepEqual(templates[0].components, [
+            {
+                example: { header_text: ['A-1234'] },
+                format: 'TEXT',
+                text: 'Your order {{1}}',
+                type: 'HEADER',
+            },
+            {
+                example: { body_text: [['Jane', 'A-1234']] },
+                text: 'Hi {{1}}, order {{2}} shipped.',
+                type: 'BODY',
+            },
+            { text: 'Reply STOP to opt out', type: 'FOOTER' },
+            {
+                buttons: [
+                    { text: 'Yes', type: 'QUICK_REPLY' },
+                    { text: 'No', type: 'QUICK_REPLY' },
+                    {
+                        example: ['https://ex.com/t/A-1234'],
+                        text: 'Track',
+                        type: 'URL',
+                        url: 'https://ex.com/t/{{1}}',
+                    },
+                    { phone_number: '+15550100', text: 'Call us', type: 'PHONE_NUMBER' },
+                ],
+                type: 'BUTTONS',
+            },
+        ]);
+    });
+
+    it('accepts the old column names and leaves out parts without a column', () => {
+        const { templates, parts } = templatesFromRows([
+            {
+                'template name': 'x',
+                category: 'Utility',
+                language: 'fr',
+                'meta template': 'Hi',
+                examples: '',
+            },
+        ]);
+        assert.deepEqual(parts, ['BODY']);
+        assert.deepEqual(templates[0].components, [{ text: 'Hi', type: 'BODY' }]);
+    });
+
+    it('leaves out a part whose cell is empty', () => {
+        const { templates } = templatesFromRows([
+            fullRow({
+                header: '',
+                footer: '',
+                'quick replies': '',
+                'url button': '',
+                'call button': '',
+            }),
+        ]);
+        assert.deepEqual(
+            templates[0].components.map((component) => component.type),
+            ['BODY'],
+        );
+    });
+
+    it('reports wrong header, footer and button cells per row', () => {
+        const { errors } = templatesFromRows([
+            fullRow({ header: 'A {{1}} {{2}}' }),
+            fullRow({ 'header example': '' }),
+            fullRow({ footer: 'Bye {{1}}' }),
+            fullRow({ 'url button': 'Track|ex.com' }),
+            fullRow({ 'url button': 'Track|https://ex.com/{{1}}/x' }),
+            fullRow({ 'url example': '' }),
+            fullRow({ 'call button': 'Call|555' }),
+            fullRow({ 'call button': '+15550100' }),
+        ]);
+        assert.deepEqual(
+            errors.map((error) => error.message),
+            [
+                'Header: at most one variable, written {{1}}',
+                'Header has {{1}}: fill in the Header example column',
+                'Footer: variables are not allowed',
+                'URL button: the URL must start with https:// or http://',
+                'URL button: only one variable, {{1}} at the very end of the URL',
+                'URL button has {{1}}: fill in the URL example column',
+                'Call button: phone number with country code, e.g. +15550100',
+                'Call button: write label|value, e.g. "Track|https://example.com/{{1}}"',
+            ],
         );
     });
 });

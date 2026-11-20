@@ -170,6 +170,7 @@ Typical flow: edit or `retrieve` the files → commit to git → `deploy` them s
 | [`discover`](#discover) | Shows the WABAs an access token can reach. Needs no config.       |
 | [`check`](#check)       | Tests the access to every WABA. Changes nothing.                  |
 | [`list`](#list)         | Lists the templates of WABAs. Changes nothing, writes no files.   |
+| [`compare`](#compare)   | Compares two backups: added, removed and changed templates.       |
 | [`retrieve`](#retrieve) | Downloads the templates of one WABA into files.                   |
 | [`import`](#import)     | Turns a CSV file (Google Sheets) into template files.             |
 | [`deploy`](#deploy)     | Sends templates to WABAs (every WABA of a stage, or picked ones). |
@@ -240,6 +241,31 @@ wabadev list --to prod          # all prod WABAs
 wabadev list --from dev --json  # for scripts
 ```
 
+### `compare`
+
+Compares two backup sets (restore points) and lists which templates were **added**, **removed** and
+**changed** — and for changed ones, which fields changed, with the value before and after. The older
+set is always "before", whatever order you give them in, so a deleted template never shows as added.
+Line-ending differences do not count. Two sets of different WABAs can be compared too (e.g. qa vs
+prod).
+
+```bash
+wabadev compare <backup set> <backup set> [--json]
+```
+
+```bash
+wabadev compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_2026-11-20T18-26-04-123Z_after
+#   Added (1):
+#     summer_sale (en_US)
+#   Removed (0):
+#   Changed (1):
+#     order_shipped (en_US)
+#       Body text:
+#         before: Hi {{1}}, your order shipped.
+#         after:  Hi {{1}}, your order {{2}} shipped.
+#   Unchanged: 41
+```
+
 ### `retrieve`
 
 Downloads the templates of one WABA into `templates/<name>/<language>.json`. Commit these files to
@@ -288,8 +314,8 @@ wabadev import --csv sheet.csv
 
 Good to know:
 
-- For a template file that already exists, only the body text is replaced. Header, footer,
-  buttons and category stay.
+- For a template file that already exists, only the parts the sheet has columns for are
+  replaced (see [CSV columns](#csv-columns)); the category stays.
 - Rows with errors are listed with their row number. All other rows are still imported.
 - The file is cleaned up the same way sfmc-dataloader does it: empty rows are skipped, and empty
   columns on the right (no header, no values) are removed. A value in such a column is an error.
@@ -300,13 +326,31 @@ Good to know:
 Export from Google Sheets with **File → Download → Comma-separated values (.csv)**. Header names
 are not case-sensitive. Other columns (e.g. `Brand`) are ignored.
 
-| Column          | Required                    | Content                                     | Example                                |
-| --------------- | --------------------------- | ------------------------------------------- | -------------------------------------- |
-| `Template name` | yes                         | Template name: letters, digits, `_`         | `order_shipped`                        |
-| `Category`      | yes                         | `Utility` or `Marketing`                    | `Utility`                              |
-| `Meta Template` | yes                         | Body text, variables as `{{1}}`, `{{2}}`, … | `Hi {{1}}, order {{2}} is on its way.` |
-| `Language`      | yes                         | Meta language code                          | `en_US`, `fr`, `it`                    |
-| `Examples`      | when the text has variables | One example per variable, separated by `\|` | `Jane\|A-1234`                         |
+| Column                          | Required                    | Content                                                    | Example                          |
+| ------------------------------- | --------------------------- | ---------------------------------------------------------- | -------------------------------- |
+| `Template name`                 | yes                         | Letters, digits, `_`                                       | `order_shipped`                  |
+| `Category`                      | yes                         | `Utility` or `Marketing` (used when a template is created) | `Utility`                        |
+| `Language`                      | yes                         | Meta language code                                         | `en_US`, `fr`, `it`              |
+| `Body` (or `Meta Template`)     | yes                         | Message text, variables as `{{1}}`, `{{2}}`, …             | `Hi {{1}}, order {{2}} shipped.` |
+| `Body examples` (or `Examples`) | when the body has variables | One example per variable, separated by `\|`                | `Jane\|A-1234`                   |
+| `Header`                        | no                          | Text header, at most one variable `{{1}}`                  | `Your order {{1}}`               |
+| `Header example`                | when the header has `{{1}}` | Example for the header variable                            | `A-1234`                         |
+| `Footer`                        | no                          | Short text, no variables                                   | `Reply STOP to opt out`          |
+| `Quick replies`                 | no                          | Button labels, separated by `\|`                           | `Yes\|No\|Later`                 |
+| `URL button`                    | no                          | `label\|URL`; the URL may end in `{{1}}`                   | `Track\|https://ex.com/t/{{1}}`  |
+| `URL example`                   | when the URL has `{{1}}`    | Example for the URL variable                               | `A-1234`                         |
+| `Call button`                   | no                          | `label\|phone number` with country code                    | `Call us\|+15550100`             |
+
+- **Columns decide what is replaced** — for the whole sheet, by its header row. The sheet sets the
+  body, plus the header, the footer and each kind of button **if it has that column**. Anything
+  without a column stays as it is in the existing template: a sheet with only `Quick replies`
+  replaces quick replies but keeps URL and call buttons; an old sheet with only body columns touches
+  nothing else. A column that exists but is empty in a row **removes** that part — in template files
+  (`import`) and in WABAs (`deploy --csv`) alike.
+- Every cell is trimmed, and line breaks inside a cell are stored as plain `\n` (no Windows `\r\n`),
+  so a re-import of the same sheet does not count as a change.
+- Not possible in a sheet: image, video or document headers, named variables, authentication and
+  carousel templates.
 
 ### `deploy`
 
@@ -328,19 +372,20 @@ Where the templates come from:
 | Another WABA             | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
 | A CSV file               | `wabadev deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
 
-| Option                  | Meaning                                                                                           | Example                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `--to <stage>`          | Target: every WABA of this stage.                                                                 | `--to qa`                                       |
-| `--to-waba <id>`        | Target: only this WABA. Repeat for more. No `--to` needed; with `--to` it must be in that stage.  | `--to-waba 444444444444444`                     |
-| `--from <stage>`        | Source: the WABA of this stage (instead of the files).                                            | `--from dev`                                    |
-| `--from-waba <id>`      | Source: this WABA. No `--from` needed; required when the `--from` stage has several.              | `--from-waba 333333333333333`                   |
-| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                             | `--csv sheet.csv`                               |
-| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                          | `-m order_shipped`                              |
-| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                  | `--dry-run`                                     |
-| `--prune`               | Also delete templates that exist only in the target. Lists them first.                            | `--prune`                                       |
-| `--yes`                 | With `--prune`: really delete.                                                                    | `--prune --yes`                                 |
-| `--backup <folder>`     | Before changing a WABA, save all its templates to `<folder>/<wabaId>/` (see [Backups](#backups)). | `--backup backups/2026-11-20`                   |
-| `--from-dir <folder>`   | Source: template files in this folder instead of `templates/` — e.g. a backup.                    | `--from-dir backups/2026-11-20/444444444444444` |
+| Option                  | Meaning                                                                                                 | Example                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `--to <stage>`          | Target: every WABA of this stage.                                                                       | `--to qa`                                          |
+| `--to-waba <id>`        | Target: only this WABA. Repeat for more. No `--to` needed; with `--to` it must be in that stage.        | `--to-waba 444444444444444`                        |
+| `--from <stage>`        | Source: the WABA of this stage (instead of the files).                                                  | `--from dev`                                       |
+| `--from-waba <id>`      | Source: this WABA. No `--from` needed; required when the `--from` stage has several.                    | `--from-waba 333333333333333`                      |
+| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).                                   | `--csv sheet.csv`                                  |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                                | `-m order_shipped`                                 |
+| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing.                        | `--dry-run`                                        |
+| `--prune`               | Also delete templates that exist only in the target. Lists them first.                                  | `--prune`                                          |
+| `--yes`                 | With `--prune`: really delete.                                                                          | `--prune --yes`                                    |
+| `--backup <folder>`     | Before changing a WABA, save all its templates as a backup set in `<folder>` (see [Backups](#backups)). | `--backup backups`                                 |
+| `--backup-after`        | With `--backup`: also save each changed WABA after the changes (`…_after`).                             | `--backup backups --backup-after`                  |
+| `--from-dir <folder>`   | Source: template files in this folder instead of `templates/` — e.g. a backup set.                      | `--from-dir backups/444…_2026-11-20T18-26-04-123Z` |
 
 ```bash
 wabadev deploy --to qa --dry-run                 # preview
@@ -389,30 +434,52 @@ Good to know:
 - **Category** is only set when a template is created. Meta does not allow changing it later.
 - Created and updated templates are reviewed by Meta again and show `PENDING` for a while. Run
   `--dry-run` later to see the new status.
-- With `--csv`, only the body text of existing templates is replaced. Their header, footer and
-  buttons stay.
+- With `--csv`, only the parts the sheet has columns for are replaced in existing templates (see
+  [CSV columns](#csv-columns)).
 - One failing template does not stop the others. The report shows Meta's error.
 
 #### Backups
 
 Meta keeps no history of templates: once a template is updated, its old text is gone. With
 `--backup <folder>`, every target WABA that is about to change is saved first — **all** its templates,
-in the same format as `retrieve`, plus a `manifest.json` (date, source, targets). If the backup cannot
-be written, nothing is sent to that WABA. Use a **new folder for every backup** — a folder that is
-not empty is refused, so an earlier backup is never overwritten.
+in the same format as `retrieve`. Each WABA gets its own **backup set**, named by its WABA ID, the
+time of the run (UTC) and `before`. With `--backup-after`, a second set `…_after` is saved once the
+changes are sent — so you always have the state before and after:
 
-```bash
-wabadev deploy --from qa --to prod --backup backups/2026-11-20
+```text
+backups/
+├── 444444444444444_2026-11-20T18-26-04-123Z_before/
+│   ├── manifest.json          # date, WABA, stage, source, list of templates with status
+│   ├── order_shipped/
+│   │   └── en_US.json
+│   └── welcome/
+│       └── en_US.json
+└── 444444444444444_2026-11-20T18-26-04-123Z_after/
 ```
 
-To restore, deploy the backup folder of that WABA back with `--from-dir`:
+Use the same `--backup` folder every time; new sets are added next to the old ones and never
+overwritten. If a set cannot be written, nothing is sent to that WABA. WABAs without changes get no
+set.
 
 ```bash
-wabadev deploy --from-dir backups/2026-11-20/<wabaId> --to-waba <wabaId> --dry-run   # check first
-wabadev deploy --from-dir backups/2026-11-20/<wabaId> --to-waba <wabaId>
+wabadev deploy --from qa --to prod --backup backups                  # before only
+wabadev deploy --from qa --to prod --backup backups --backup-after   # before and after
 ```
 
-A restore is an edit too: Meta reviews the templates again and counts it against its edit limits.
+`manifest.json` is written automatically: it lets you (and the desktop app) see what a set contains,
+when and from where it was taken, and each template's status at that moment.
+
+To restore, deploy a set back with `--from-dir` (add `-m <name>` to restore only some templates):
+
+```bash
+wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444 --dry-run
+wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444
+```
+
+- A restore is an edit too: Meta reviews the templates again and counts it against its edit limits.
+- Templates created after the backup stay; add `--prune --yes` to get back exactly the saved set.
+- Media, authentication and carousel templates are saved, but cannot be restored (`skipped`).
+- `--backup` does nothing together with `--dry-run`.
 
 #### `--prune` safety
 

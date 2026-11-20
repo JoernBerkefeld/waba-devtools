@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { main } from '../lib/cli.js';
-import { deploy, discoverWabas, listTemplates, validateConfig } from '../lib/index.js';
+import {
+    compareBackups,
+    deploy,
+    discoverWabas,
+    listTemplates,
+    validateConfig,
+} from '../lib/index.js';
 import { bodyTemplate, createFakeGraph, createRunRoot } from './helpers.js';
 
 const run = createRunRoot();
@@ -221,45 +227,87 @@ describe('wabadev list / discover', () => {
 });
 
 describe('backups and restore', () => {
-    it('snapshots each changed target before sending, and restores from it', async () => {
-        const { readFileSync, existsSync } = await import('node:fs');
+    it('writes one set per changed WABA, named by WABA ID and time, and restores from it', async () => {
+        const { readFileSync, existsSync, readdirSync } = await import('node:fs');
         const { common, graph, writes } = appSetup({
             1: [bodyTemplate('a', 'fr', 'new')],
             2: [bodyTemplate('a', 'fr', 'old'), bodyTemplate('keep', 'fr', 'K')],
             3: [bodyTemplate('a', 'fr', 'new')],
         });
-        const backupFolder = run.add('backup-1');
+        const root = run.add('backups');
         const result = await deploy({
             ...common,
             fromWaba: '1',
             toWabas: ['2', '3'],
-            backupDir: backupFolder,
+            backupDir: root,
         });
         assert.equal(result.ok, true);
         assert.equal(writes().length, 1, 'qa: update a; prod is identical');
 
-        const manifest = JSON.parse(readFileSync(`${backupFolder}/manifest.json`, 'utf8'));
+        const [set] = readdirSync(root);
+        assert.match(set, /^2_\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z_before$/);
+        assert.equal(readdirSync(root).length, 1, 'no set for a WABA without changes');
+        assert.equal(result.targets[0].backup, path.join(root, set));
+        const manifest = JSON.parse(readFileSync(path.join(root, set, 'manifest.json'), 'utf8'));
         assert.equal(manifest.tool, 'waba-devtools');
+        assert.equal(manifest.wabaId, '2');
+        assert.equal(manifest.stage, 'qa');
         assert.deepEqual(manifest.source, {
             type: 'waba',
             stage: 'dev',
             stages: ['dev'],
             wabaId: '1',
         });
-        assert.deepEqual(manifest.targets, [{ stage: 'qa', wabaId: '2', templateCount: 2 }]);
-        assert.ok(
-            existsSync(`${backupFolder}/2/keep/fr.json`),
-            'the full set, not only the changed one',
-        );
-        assert.ok(!existsSync(`${backupFolder}/3`), 'no backup for a target without changes');
-        assert.equal(path.relative(backupFolder, result.targets[0].backup), '2');
-        assert.equal(graph.wabas[2].templates[0].components[0].text, 'new');
+        assert.deepEqual(manifest.templates, [
+            { name: 'a', language: 'fr', category: 'UTILITY', status: 'APPROVED' },
+            { name: 'keep', language: 'fr', category: 'UTILITY', status: 'APPROVED' },
+        ]);
+        assert.ok(existsSync(path.join(root, set, 'keep', 'fr.json')), 'the full set');
 
-        // Restore: deploy the backup folder back to QA.
+        // The same root works for the next run: a second set next to the first.
+        graph.wabas[1].templates[0].components[0].text = 'newer';
         graph.wabas[2].templates[0].status = 'APPROVED';
-        const restore = await deploy({ ...common, sourceDir: `${backupFolder}/2`, toWabas: ['2'] });
+        await deploy({ ...common, fromWaba: '1', toWabas: ['2'], backupDir: root });
+        assert.equal(readdirSync(root).length, 2);
+
+        // Restore the first set (the manifest next to the template folders is ignored).
+        graph.wabas[2].templates[0].status = 'APPROVED';
+        const restore = await deploy({
+            ...common,
+            sourceDir: path.join(root, set),
+            toWabas: ['2'],
+        });
         assert.equal(restore.ok, true);
         assert.equal(graph.wabas[2].templates[0].components[0].text, 'old');
+    });
+
+    it('restores only selected templates of a set', async () => {
+        const { common, graph } = appSetup({
+            1: [bodyTemplate('a', 'fr', 'new'), bodyTemplate('b', 'fr', 'new')],
+            2: [bodyTemplate('a', 'fr', 'old'), bodyTemplate('b', 'fr', 'old')],
+        });
+        const root = run.add('backups-select');
+        const result = await deploy({ ...common, fromWaba: '1', toWabas: ['2'], backupDir: root });
+        const qaTemplates = graph.wabas[2].templates;
+        for (const template of qaTemplates) {
+            template.status = 'APPROVED';
+        }
+        const options = { ...common, sourceDir: result.targets[0].backup, toWabas: ['2'] };
+        const restore = await deploy({ ...options, templateKeys: ['b::fr'] });
+        assert.equal(restore.ok, true);
+        assert.deepEqual(
+            graph.wabas[2].templates.map((template) => template.components[0].text),
+            ['new', 'old'],
+        );
+        await assert.rejects(
+            deploy({ ...options, templateKeys: ['c::fr'] }),
+            /Not found in the source: c::fr/,
+        );
+        await assert.rejects(deploy({ ...options, templateKeys: [] }), /No templates selected/);
+        await assert.rejects(
+            deploy({ ...options, templateKeys: ['b::fr'], prune: true }),
+            /--prune only works when deploying the full set/,
+        );
     });
 
     it('sends nothing to a target whose backup cannot be written', async () => {
@@ -281,28 +329,11 @@ describe('backups and restore', () => {
         assert.equal(result.targets[1].error, undefined);
         assert.equal(writes().length, 1, 'only the target with a good backup got its create');
     });
-
-    it('refuses a backup folder that is not empty or not a folder, before sending', async () => {
-        const { writeFileSync } = await import('node:fs');
-        const { common, writes } = appSetup({ 1: [bodyTemplate('a', 'fr', 'A')], 2: [] });
-        const options = { ...common, fromWaba: '1', toWabas: ['2'] };
-        const used = run.add('backup-used');
-        await deploy({ ...options, dryRun: true, backupDir: used });
-        const first = await deploy({ ...options, names: ['a'], backupDir: used });
-        assert.equal(first.ok, true);
-        assert.equal(writes().length, 1);
-
-        await assert.rejects(deploy({ ...options, backupDir: used }), /is not empty/);
-        const file = run.add('backup-is-a-file');
-        writeFileSync(file, 'not a folder');
-        await assert.rejects(deploy({ ...options, backupDir: file }), /Cannot use backup folder/);
-        assert.equal(writes().length, 1, 'refused runs send nothing');
-    });
 });
 
 describe('wabadev deploy --backup / --from-dir', () => {
     it('backs up through the CLI and restores with --from-dir', async () => {
-        const { mkdirSync, writeFileSync, existsSync } = await import('node:fs');
+        const { mkdirSync, writeFileSync, readdirSync } = await import('node:fs');
         const { graph } = appSetup({
             1: [bodyTemplate('a', 'fr', 'new')],
             2: [bodyTemplate('a', 'fr', 'old')],
@@ -329,14 +360,184 @@ describe('wabadev deploy --backup / --from-dir', () => {
             await main(['deploy', '--from', 'dev', '--to', 'qa', '--backup', 'bk'], io),
             0,
         );
-        assert.ok(existsSync(path.join(cwd, 'bk', '2', 'a', 'fr.json')));
+        const [set] = readdirSync(path.join(cwd, 'bk'));
         assert.equal(graph.wabas[2].templates[0].components[0].text, 'new');
 
         graph.wabas[2].templates[0].status = 'APPROVED';
-        assert.equal(await main(['deploy', '--from-dir', 'bk/2', '--to', 'qa'], io), 0);
+        assert.equal(await main(['deploy', '--from-dir', `bk/${set}`, '--to', 'qa'], io), 0);
         assert.equal(graph.wabas[2].templates[0].components[0].text, 'old');
         assert.equal(
-            await main(['deploy', '--from-dir', 'bk/2', '--from', 'dev', '--to', 'qa'], io),
+            await main(['deploy', '--from-dir', `bk/${set}`, '--from', 'dev', '--to', 'qa'], io),
+            2,
+        );
+    });
+});
+
+/**
+ * A live template with body "Hi", a footer and one quick-reply button.
+ *
+ * @param {string} name
+ * @returns {object}
+ */
+function withExtras(name) {
+    return {
+        ...bodyTemplate(name, 'fr', 'Hi'),
+        components: [
+            { type: 'BODY', text: 'Hi' },
+            { type: 'FOOTER', text: 'old footer' },
+            { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'OK' }] },
+        ],
+    };
+}
+
+describe('deploy --csv with part columns', () => {
+    it('replaces only the parts the sheet has columns for', async () => {
+        const { writeFileSync } = await import('node:fs');
+        const { common, graph } = appSetup({ 2: [withExtras('x'), withExtras('y')] });
+        const file = run.add('parts.csv');
+        writeFileSync(
+            file,
+            'Template name,Category,Body,Language,Footer\r\nx,Utility,Hi,fr,new footer\r\ny,Utility,Hi,fr,\r\n',
+        );
+        const result = await deploy({ ...common, csv: file, toWabas: ['2'] });
+        assert.equal(result.ok, true);
+        const [x, y] = graph.wabas[2].templates;
+        assert.deepEqual(
+            x.components.map((component) => component.text ?? component.type),
+            ['Hi', 'new footer', 'BUTTONS'],
+        );
+        assert.deepEqual(
+            y.components.map((component) => component.text ?? component.type),
+            ['Hi', 'BUTTONS'],
+            'an empty Footer cell removes the footer, buttons stay',
+        );
+    });
+});
+
+/**
+ * QA gets "a" updated, "b" created; "gone" only exists in QA.
+ *
+ * @returns {Promise.<object>}
+ */
+async function runWithBothBackups() {
+    const { common, graph, writes } = appSetup({
+        1: [
+            bodyTemplate('a', 'fr', 'Hi {{1}}', { components: undefined }),
+            bodyTemplate('b', 'fr', 'B'),
+        ],
+        2: [bodyTemplate('a', 'fr', 'Hello'), bodyTemplate('gone', 'fr', 'G')],
+    });
+    graph.wabas[1].templates[0].components = [
+        { type: 'BODY', text: 'Hi {{1}}', example: { body_text: [['Jane']] } },
+    ];
+    const root = run.add(`both-${Math.random().toString(36).slice(2)}`);
+    const result = await deploy({
+        ...common,
+        fromWaba: '1',
+        toWabas: ['2'],
+        backupDir: root,
+        backupAfter: true,
+    });
+    return { result, graph, writes, root, common };
+}
+
+describe('after-backups and comparing restore points', () => {
+    it('writes a matching _before and _after set', async () => {
+        const { readFileSync } = await import('node:fs');
+        const { result } = await runWithBothBackups();
+        const [target] = result.targets;
+        assert.match(target.backup, /2_.+Z_before$/);
+        assert.equal(target.backupAfter, target.backup.replace(/_before$/, '_after'));
+        const after = JSON.parse(
+            readFileSync(path.join(target.backupAfter, 'manifest.json'), 'utf8'),
+        );
+        assert.equal(after.phase, 'after');
+        assert.deepEqual(
+            after.templates.map((template) => `${template.name}:${template.status}`),
+            ['a:PENDING', 'b:PENDING', 'gone:APPROVED'],
+        );
+        await assert.rejects(
+            deploy({ ...appSetup().common, fromWaba: '1', toWabas: ['2'], backupAfter: true }),
+            /--backup-after needs --backup/,
+        );
+    });
+
+    it('compares older with newer, whatever order the sets are given in', async () => {
+        const { result } = await runWithBothBackups();
+        const [{ backup, backupAfter }] = result.targets;
+        for (const [first, second] of [
+            [backup, backupAfter],
+            [backupAfter, backup],
+        ]) {
+            const report = await compareBackups(first, second);
+            assert.equal(report.older.phase, 'before');
+            assert.equal(report.sameWaba, true);
+            assert.deepEqual(
+                report.added.map((template) => template.name),
+                ['b'],
+            );
+            assert.deepEqual(report.removed, []);
+            assert.equal(report.unchanged, 1);
+            assert.deepEqual(report.changed[0].changes, [
+                { field: 'Body text', before: 'Hello', after: 'Hi {{1}}' },
+                { field: 'Body examples', before: undefined, after: 'Jane' },
+            ]);
+        }
+    });
+
+    it('reports a deletion as removed, and notes different WABAs', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const root = run.add('manual-sets');
+        const write = (folder, wabaId, createdAt, templates) => {
+            mkdirSync(path.join(root, folder), { recursive: true });
+            writeFileSync(
+                path.join(root, folder, 'manifest.json'),
+                JSON.stringify({ tool: 'waba-devtools', createdAt, wabaId, templates: [] }),
+            );
+            for (const template of templates) {
+                mkdirSync(path.join(root, folder, template.name));
+                writeFileSync(
+                    path.join(root, folder, template.name, `${template.language}.json`),
+                    JSON.stringify(template),
+                );
+            }
+        };
+        write('old', '2', '2026-01-01T00:00:00.000Z', [
+            bodyTemplate('a', 'fr', 'Line 1\nLine 2'),
+            bodyTemplate('x', 'fr', 'X'),
+        ]);
+        write('new', '3', '2026-02-01T00:00:00.000Z', [
+            bodyTemplate('a', 'fr', 'Line 1\r\nLine 2'),
+        ]);
+        const report = await compareBackups(path.join(root, 'new'), path.join(root, 'old'));
+        assert.equal(report.older.wabaId, '2');
+        assert.equal(report.sameWaba, false);
+        assert.deepEqual(
+            report.removed.map((template) => template.name),
+            ['x'],
+        );
+        assert.deepEqual(report.added, []);
+        assert.equal(report.unchanged, 1, 'line endings do not count');
+        await assert.rejects(compareBackups(root, path.join(root, 'old')), /is not a backup set/);
+    });
+
+    it('wabadev compare prints the field changes', async () => {
+        const { result } = await runWithBothBackups();
+        const [{ backup, backupAfter }] = result.targets;
+        const out = [];
+        const code = await main(['compare', backupAfter, backup], {
+            cwd: run.root,
+            environment: {},
+            out: (text) => {
+                out.push(text);
+            },
+            err: () => {},
+        });
+        assert.equal(code, 0);
+        assert.match(out[0], /Added \(1\):\n {2}b \(fr\)/);
+        assert.match(out[0], /Body text:\n {6}before: Hello\n {6}after: {2}Hi \{\{1\}\}/);
+        assert.equal(
+            await main(['compare', backup], { cwd: run.root, out: () => {}, err: () => {} }),
             2,
         );
     });
