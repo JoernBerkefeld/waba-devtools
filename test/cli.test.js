@@ -140,6 +140,62 @@ describe('wabadev retrieve / deploy', () => {
         assert.match(missing.err, /Not found in the source: nope/);
     });
 
+    it('picks one source WABA with --from-waba and target WABAs with --to-waba', async () => {
+        const p = project({
+            3: [bodyTemplate('a', 'fr', 'A')],
+            4: [bodyTemplate('b', 'fr', 'B')],
+        });
+        const ambiguous = await p.cli(['retrieve', '--from', 'prod']);
+        assert.equal(ambiguous.code, 2);
+        assert.match(ambiguous.err, /several WABAs \(3, 4\); pick one with --from-waba/);
+        assert.equal(p.graph.calls.length, 0, 'nothing is read before the usage error');
+
+        const retrieved = json(
+            await p.cli(['retrieve', '--from', 'prod', '--from-waba', '4', '--json']),
+        );
+        assert.equal(retrieved.wabaId, '4');
+        assert.deepEqual(
+            retrieved.files.map((file) => file.name),
+            ['b'],
+        );
+
+        // WABA 4 → WABA 3 only, inside the same stage; dev and qa stay untouched.
+        const result = json(
+            await p.cli([
+                'deploy',
+                '--from',
+                'prod',
+                '--from-waba',
+                '4',
+                '--to',
+                'prod',
+                '--to-waba',
+                '3',
+                '--json',
+            ]),
+        );
+        assert.equal(result.ok, true);
+        assert.deepEqual(
+            result.targets.map((target) => target.wabaId),
+            ['3'],
+        );
+        assert.deepEqual(
+            p.graph.wabas[3].templates.map((t) => t.name).toSorted((a, b) => a.localeCompare(b)),
+            ['a', 'b'],
+        );
+        assert.equal(p.writes().length, 1);
+
+        const unknown = await p.cli(['deploy', '--to', 'prod', '--to-waba', '9']);
+        assert.equal(unknown.code, 2);
+        assert.match(unknown.err, /WABA 9 is not part of stage "prod"/);
+        const orphan = await p.cli(['deploy', '--to', 'qa', '--from-waba', '3']);
+        assert.equal(orphan.code, 2);
+        assert.match(orphan.err, /--from-waba needs --from/);
+        const old = await p.cli(['retrieve', '--from', 'prod', '--waba', '3']);
+        assert.equal(old.code, 2);
+        assert.equal(p.writes().length, 1, 'refused runs send nothing');
+    });
+
     it('reports blocked templates and failed calls with exit code 1', async () => {
         const p = project({
             1: [bodyTemplate('pending', 'fr', 'New'), bodyTemplate('bad', 'fr', 'x')],

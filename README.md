@@ -54,15 +54,52 @@ Node.js `^22.22.2 || >=24.15.0`.
 
 ## Configuration — `.wabadevrc.json`
 
-| Key                         | Required | Meaning                                                                                                  |
-| --------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `stages`                    | yes      | Stage name → list of WABAs. A deploy to a stage goes to **all** of its WABAs.                            |
-| `stages.<stage>[].wabaId`   | yes      | The WhatsApp Business Account ID.                                                                        |
-| `stages.<stage>[].tokenEnv` | yes      | Name of the environment variable that holds the access token for this WABA. Several WABAs may share one. |
-| `graphVersion`              | no       | Graph API version, default `v23.0`.                                                                      |
-| `templatesDir`              | no       | Folder for template files, default `templates`.                                                          |
+| Key                         | Required | Meaning                                                                                                                  |
+| --------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `stages`                    | yes      | Stage name → list of WABAs. A deploy to a stage goes to **all** of its WABAs (or only the ones picked with `--to-waba`). |
+| `stages.<stage>[].wabaId`   | yes      | The WhatsApp Business Account ID.                                                                                        |
+| `stages.<stage>[].tokenEnv` | yes      | Name of the environment variable that holds the access token for this WABA. Several WABAs may share one.                 |
+| `graphVersion`              | no       | Graph API version, default `v23.0`.                                                                                      |
+| `templatesDir`              | no       | Folder for template files, default `templates`.                                                                          |
 
 The config never contains tokens.
+
+## File structure
+
+There is **one set of template files for all stages**. The files contain no WABA IDs, phone
+numbers or statuses, so the same file can be deployed to dev, qa and prod.
+
+```text
+my-project/
+├── .wabadevrc.json          # stages and WABA IDs
+├── .env                     # tokens — never commit
+└── templates/
+    ├── order_shipped/
+    │   ├── en_US.json       # one file per language
+    │   └── fr.json
+    └── welcome/
+        └── en_US.json
+```
+
+One file = one template in one language:
+
+```json
+{
+  "category": "UTILITY",
+  "components": [
+    {
+      "example": { "body_text": [["Jane", "A-1234"]] },
+      "text": "Hi {{1}}, order {{2}} is on its way.",
+      "type": "BODY"
+    }
+  ],
+  "language": "en_US",
+  "name": "order_shipped",
+  "parameter_format": "POSITIONAL"
+}
+```
+
+Typical flow: edit or `retrieve` the files → commit to git → `deploy` them stage by stage.
 
 ## Access tokens
 
@@ -89,81 +126,175 @@ your own system user can be assigned to them. Run `wabadev check` to confirm.
 
 ## Commands
 
-```text
-wabadev check    [--stage <stage>] [--json]
-wabadev retrieve --from <stage> [--waba <id>] [-m <name>…] [--json]
-wabadev import   --csv <file> [--json]
-wabadev deploy   --to <stage> [-m <name>…] [--dry-run] [--json]
-wabadev deploy   --from <stage> [--waba <id>] --to <stage> [-m <name>…] [--dry-run] [--json]
-wabadev deploy   --csv <file> --to <stage> [--dry-run] [--json]
-wabadev deploy   --to <stage> [--from <stage>] --prune [--yes]
+| Command                 | What it does                                          |
+| ----------------------- | ----------------------------------------------------- |
+| [`check`](#check)       | Tests the access to every WABA. Changes nothing.      |
+| [`retrieve`](#retrieve) | Downloads the templates of one WABA into files.       |
+| [`import`](#import)     | Turns a CSV file (Google Sheets) into template files. |
+| [`deploy`](#deploy)     | Sends templates to every WABA of a stage.             |
+
+Options that work with every command:
+
+| Option          | Meaning                                   | Example                |
+| --------------- | ----------------------------------------- | ---------------------- |
+| `--json`        | Print the result as JSON (for CI/scripts) | `wabadev check --json` |
+| `-h, --help`    | Show the help                             | `wabadev --help`       |
+| `-v, --version` | Show the installed version                | `wabadev --version`    |
+
+### `check`
+
+Tests for each WABA: is the token set, can the WABA be reached, can its templates be read.
+Read-only.
+
+```bash
+wabadev check [--stage <stage>]
 ```
 
-- **`check`** — read-only. Per WABA: is the token variable set, is the WABA reachable, can its
-  templates be listed.
-- **`retrieve`** — writes the templates of one WABA to `templates/<name>/<language>.json`. Only the
-  fields that define a template are kept (name, language, category, parameter format,
-  components); IDs and statuses are dropped. A stage with several WABAs needs `--waba <id>`.
-- **`import`** — writes the rows of a CSV file into template files (see below).
-- **`deploy`** — makes every WABA of `--to` match the source. The source is the templates folder
-  (default), another stage's WABA (`--from`) or a CSV file (`--csv`).
-- **`-m, --template <name>`** — only these templates (all their languages). Repeatable.
-- **`--dry-run`** — shows what would happen, including each template's current status at Meta.
-  Nothing is sent.
+| Option            | Meaning                                        | Example                    |
+| ----------------- | ---------------------------------------------- | -------------------------- |
+| `--stage <stage>` | Only check this stage. Without it: all stages. | `wabadev check --stage qa` |
 
-### What deploy does
+```bash
+wabadev check              # all stages
+wabadev check --stage prod # only the prod WABAs
+```
 
-Templates are matched by **name + language**:
+### `retrieve`
 
-| Situation in the target WABA                            | Action                                                  |
-| ------------------------------------------------------- | ------------------------------------------------------- |
-| Template missing                                        | **create** (with the source's category)                 |
-| Same content                                            | **unchanged**                                           |
-| Different content, status APPROVED, REJECTED or PAUSED  | **update** (components only)                            |
-| Different content, any other status (e.g. PENDING)      | **blocked** — reported, not sent                        |
-| Media header, authentication (OTP) or carousel template | **skipped** — not supported yet                         |
-| Only in the target                                      | **extra** — reported; deleted only with `--prune --yes` |
+Downloads the templates of one WABA into `templates/<name>/<language>.json`. Commit these files to
+git.
 
-- **Category** is used when a template is created, but never changed by an update. Meta does not
-  allow category changes on approved templates and sometimes re-categorizes templates itself. A
-  different category is shown as a note.
-- Created and updated templates go through Meta's review again and show as `PENDING` until Meta
-  decides. Run `deploy --dry-run` later to see their status.
-- A failing template does not stop the run; the next one is processed and the report shows Meta's
-  error.
+```bash
+wabadev retrieve --from <stage> [--from-waba <id>] [-m <name>]
+```
 
-### `--prune`
+| Option                  | Meaning                                                                                                                         | Example                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `--from <stage>`        | **Required.** The stage to download from.                                                                                       | `--from dev`                              |
+| `--from-waba <id>`      | Which WABA of the stage. Needed when the stage has several WABAs — without it, retrieve stops with an error and writes nothing. | `--from prod --from-waba 333333333333333` |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                                                                        | `-m order_shipped -m welcome`             |
 
-Deletes templates that exist only in the target. Safety rules:
+```bash
+wabadev retrieve --from dev                          # all templates of dev
+wabadev retrieve --from dev -m order_shipped         # just one template
+wabadev retrieve --from prod --from-waba 333333333333333  # prod has 2 WABAs: pick one
+```
 
-- Only for full-set deploys — refused together with `-m` or `--csv`.
-- Refused when the source is empty.
-- Templates this tool cannot recreate (media header, authentication, carousel) are never deleted;
-  they stay listed as `extra`.
-- Without `--yes`, the deletes are listed but not run.
+Good to know:
 
-Meta may block the name of a deleted template for a while, so it cannot be created again right
-away.
+- Files are overwritten with what is in the WABA.
+- IDs and statuses are not saved — only what defines the template.
+- Files of templates that no longer exist in the WABA are not deleted.
 
-## CSV import (Google Sheets)
+### `import`
 
-Export the sheet with **File → Download → Comma-separated values (.csv)**. Columns (header names
-are matched case-insensitively; other columns such as `Brand` are ignored):
+Reads a CSV file and writes one template file per row. Nothing is sent to Meta.
 
-| Column          | Required                    | Content                                                          |
-| --------------- | --------------------------- | ---------------------------------------------------------------- |
-| `Template name` | yes                         | Template name, e.g. `order_shipped`                              |
-| `Category`      | yes                         | `Utility` or `Marketing` (authentication is not supported yet)   |
-| `Meta Template` | yes                         | Body text, with variables `{{1}}`, `{{2}}`, …                    |
-| `Language`      | yes                         | Meta language code, e.g. `fr`, `it`, `en_US`                     |
-| `Examples`      | when the text has variables | One example per variable, separated by `\|`, e.g. `Jane\|A-1234` |
+```bash
+wabadev import --csv <file>
+```
 
-- `wabadev import --csv sheet.csv` writes the rows into template files. For an existing file only
-  the body is replaced; header, footer, buttons and category stay as they are.
-- `wabadev deploy --csv sheet.csv --to qa` sends the rows directly. For templates that already
-  exist in a WABA, only their body is replaced there too.
-- Rows with problems (missing values, missing examples, duplicates, named variables) are listed
-  with their row number; the other rows are still processed.
+| Option         | Meaning                             | Example                   |
+| -------------- | ----------------------------------- | ------------------------- |
+| `--csv <file>` | **Required.** The CSV file to read. | `--csv exports/sheet.csv` |
+
+```bash
+wabadev import --csv sheet.csv
+```
+
+Good to know:
+
+- For a template file that already exists, only the body text is replaced. Header, footer,
+  buttons and category stay.
+- Rows with errors are listed with their row number. All other rows are still imported.
+
+#### CSV columns
+
+Export from Google Sheets with **File → Download → Comma-separated values (.csv)**. Header names
+are not case-sensitive. Other columns (e.g. `Brand`) are ignored.
+
+| Column          | Required                    | Content                                     | Example                                |
+| --------------- | --------------------------- | ------------------------------------------- | -------------------------------------- |
+| `Template name` | yes                         | Template name: letters, digits, `_`         | `order_shipped`                        |
+| `Category`      | yes                         | `Utility` or `Marketing`                    | `Utility`                              |
+| `Meta Template` | yes                         | Body text, variables as `{{1}}`, `{{2}}`, … | `Hi {{1}}, order {{2}} is on its way.` |
+| `Language`      | yes                         | Meta language code                          | `en_US`, `fr`, `it`                    |
+| `Examples`      | when the text has variables | One example per variable, separated by `\|` | `Jane\|A-1234`                         |
+
+### `deploy`
+
+Makes every WABA of the target stage match the source: creates missing templates and updates
+changed ones. Everything else is left alone.
+
+```bash
+wabadev deploy --to <stage> [--to-waba <id>] [--from <stage> [--from-waba <id>] | --csv <file>] [-m <name>] [--dry-run] [--prune [--yes]]
+```
+
+Where the templates come from:
+
+| Source                   | Command                                  | Uses the files on disk?                                  |
+| ------------------------ | ---------------------------------------- | -------------------------------------------------------- |
+| Template files (default) | `wabadev deploy --to qa`                 | Yes — reads `templates/`                                 |
+| Another stage's WABA     | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
+| A CSV file               | `wabadev deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
+
+| Option                  | Meaning                                                                          | Example                                   |
+| ----------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
+| `--to <stage>`          | **Required.** The stage to deploy to — all of its WABAs.                         | `--to qa`                                 |
+| `--to-waba <id>`        | Only this WABA of the `--to` stage. Repeat for more.                             | `--to prod --to-waba 444444444444444`     |
+| `--from <stage>`        | Copy from this stage's WABA instead of the files.                                | `--from dev`                              |
+| `--from-waba <id>`      | With `--from`: which WABA of the source stage. Needed when it has several.       | `--from prod --from-waba 333333333333333` |
+| `--csv <file>`          | Take the templates from a CSV file (see [CSV columns](#csv-columns)).            | `--csv sheet.csv`                         |
+| `-m, --template <name>` | Only this template (all its languages). Repeat for more.                         | `-m order_shipped`                        |
+| `--dry-run`             | Only show what would happen, with each template's status at Meta. Sends nothing. | `--dry-run`                               |
+| `--prune`               | Also delete templates that exist only in the target. Lists them first.           | `--prune`                                 |
+| `--yes`                 | With `--prune`: really delete.                                                   | `--prune --yes`                           |
+
+```bash
+wabadev deploy --to qa --dry-run                 # preview
+wabadev deploy --to qa                           # all files → every qa WABA
+wabadev deploy --to prod -m order_shipped        # one template only
+wabadev deploy --from qa --to prod               # copy qa → prod
+wabadev deploy --csv sheet.csv --to dev          # CSV → dev, no files needed
+wabadev deploy --from qa --to prod --prune       # list what would be deleted
+wabadev deploy --from qa --to prod --prune --yes # copy and delete the extras
+wabadev deploy --to prod --to-waba 444444444444444 # files → one prod WABA only
+
+# One WABA to one other WABA — even inside the same stage:
+wabadev deploy --from prod --from-waba 333333333333333 --to prod --to-waba 444444444444444
+```
+
+#### What happens to each template
+
+Templates are matched by **name + language**.
+
+| In the target WABA                             | Result                                        |
+| ---------------------------------------------- | --------------------------------------------- |
+| Missing                                        | **create**                                    |
+| Same content                                   | **unchanged**                                 |
+| Different, status APPROVED, REJECTED or PAUSED | **update**                                    |
+| Different, other status (e.g. PENDING)         | **blocked** — not sent, exit code 1           |
+| Media header, authentication (OTP) or carousel | **skipped** — not supported yet               |
+| Only in the target                             | **extra** — only deleted with `--prune --yes` |
+
+Good to know:
+
+- **Category** is only set when a template is created. Meta does not allow changing it later.
+- Created and updated templates are reviewed by Meta again and show `PENDING` for a while. Run
+  `--dry-run` later to see the new status.
+- With `--csv`, only the body text of existing templates is replaced. Their header, footer and
+  buttons stay.
+- One failing template does not stop the others. The report shows Meta's error.
+
+#### `--prune` safety
+
+- Works with the template files and with `--from` — whenever the whole set is deployed.
+- Refused together with `-m` or `--csv`: those only send some templates, so "missing in the
+  source" would not mean "should be deleted".
+- Refused when the source has no templates.
+- Media, authentication and carousel templates are never deleted.
+- Without `--yes`, nothing is deleted — you only see the list.
+- Meta may block a deleted template's name for a while, so it cannot be created again right away.
 
 ## Output and exit codes
 

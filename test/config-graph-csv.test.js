@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
-import { loadDotenvFile, pickSourceWaba, resolveToken, validateConfig } from '../lib/config.js';
+import {
+    loadDotenvFile,
+    pickSourceWaba,
+    pickTargetWabas,
+    resolveToken,
+    validateConfig,
+} from '../lib/config.js';
 import { readCsvTemplates, templatesFromRows } from '../lib/csv.js';
 import { GraphError } from '../lib/errors.js';
 import { createGraphClient } from '../lib/graph.js';
@@ -42,12 +48,24 @@ describe('config', () => {
         );
     });
 
-    it('needs --waba for a source stage with several WABAs', () => {
+    it('needs --from-waba for a source stage with several WABAs', () => {
         assert.equal(pickSourceWaba(config, 'dev').wabaId, '1');
-        assert.throws(() => pickSourceWaba(config, 'prod'), /--waba/);
+        assert.throws(() => pickSourceWaba(config, 'prod'), /--from-waba/);
         assert.equal(pickSourceWaba(config, 'prod', '3').wabaId, '3');
         assert.throws(() => pickSourceWaba(config, 'prod', '9'), /not part of stage/);
         assert.throws(() => pickSourceWaba(config, 'qa'), /Unknown stage "qa"/);
+    });
+
+    it('targets all WABAs of a stage, or only the ones named with --to-waba', () => {
+        assert.deepEqual(
+            pickTargetWabas(config, 'prod').map((entry) => entry.wabaId),
+            ['2', '3'],
+        );
+        assert.deepEqual(
+            pickTargetWabas(config, 'prod', ['3', '3']).map((entry) => entry.wabaId),
+            ['3'],
+        );
+        assert.throws(() => pickTargetWabas(config, 'prod', ['1', '3']), /WABA 1 is not part/);
     });
 
     it('names the missing token variable', () => {
