@@ -875,3 +875,35 @@ describe('comparing two WABAs live', () => {
         }
     });
 });
+
+describe('independent before/after backups', () => {
+    it('writes only the after set when backupBefore is off', async () => {
+        const { readdirSync } = await import('node:fs');
+        const { common } = appSetup({ 1: [bodyTemplate('a', 'fr', 'A')], 2: [] });
+        const root = run.add('after-only');
+        const result = await deploy({
+            ...common,
+            fromWaba: '1',
+            toWabas: ['2'],
+            backupDir: root,
+            backupBefore: false,
+            backupAfter: true,
+        });
+        assert.equal(result.targets[0].backup, undefined);
+        assert.match(path.basename(result.targets[0].backupAfter), /_after$/);
+        assert.deepEqual(
+            readdirSync(root).map((set) => set.split('_').at(-1)),
+            ['after'],
+        );
+        await assert.rejects(
+            deploy({
+                ...common,
+                fromWaba: '1',
+                toWabas: ['2'],
+                backupDir: root,
+                backupBefore: false,
+            }),
+            /both before- and after-backups are off/,
+        );
+    });
+});
