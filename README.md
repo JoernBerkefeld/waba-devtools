@@ -538,12 +538,17 @@ wabadev deploy --from qa --to prod --expect preview.json
 ```
 
 - For each WABA, the creates, updates and deletes (by name and language) must be exactly the ones in
-  the preview. If anything changed, **nothing** is sent to that WABA and it reports
-  `changed since preview — run the preview again` (exit code 1). Other WABAs are not affected.
+  the preview, **and nothing may differ from what the preview showed**: the preview stores a short
+  `fingerprint` per create, update and delete — a hash of the content to send and, for updates and
+  deletes, of the template in the WABA as it was at preview time. The real run compares them. So a
+  change on either side is caught: an edit to your template files or CSV, a colleague editing a template
+  in the WABA, or a template that was deleted and created again before your delete runs. If anything differs, **nothing** is sent to that WABA and it
+  reports `changed since preview — run the preview again` (exit code 1). Other WABAs are not affected.
 - A WABA that was not in the preview gets nothing if it would need changes.
 - The file is the whole `--json` report of `deploy --dry-run`, or just its `targets` list:
-  `[{ "wabaId": "…", "actions": [{ "name": "…", "language": "…", "action": "create" }] }]`.
-  Other fields are ignored. A report of a real (not dry-run) deploy is refused.
+  `[{ "wabaId": "…", "actions": [{ "name": "…", "language": "…", "action": "create", "fingerprint": "…" }] }]`.
+  Other fields are ignored. A preview without any fingerprints (older files) still works, but then only
+  the actions are checked; in a preview with fingerprints, every create, update and delete needs its own. A report of a real (not dry-run) deploy is refused.
 
 #### `--prune` safety
 

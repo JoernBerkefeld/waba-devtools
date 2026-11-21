@@ -961,3 +961,93 @@ describe('wabadev deploy --expect', () => {
         assert.match(errors.at(-1), /from a real deploy/);
     });
 });
+
+describe('content fingerprints in the confirmed preview', () => {
+    it('catches a template edited after the preview, and accepts older previews', async () => {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { common, graph, writes } = appSetup({ 2: [bodyTemplate('a', 'fr', 'old')] });
+        const folder = run.add('fingerprint-files');
+        const write = (text) => {
+            mkdirSync(path.join(folder, 'a'), { recursive: true });
+            writeFileSync(
+                path.join(folder, 'a', 'fr.json'),
+                JSON.stringify(bodyTemplate('a', 'fr', text)),
+            );
+        };
+        write('Hello');
+        const options = { ...common, sourceDir: folder, toWabas: ['2'] };
+        const preview = await deploy({ ...options, dryRun: true });
+        const [action] = preview.targets[0].actions;
+        assert.equal(action.action, 'update');
+        assert.match(action.fingerprint, /^[0-9a-f]{16}$/);
+
+        // The file is edited after the preview: same action, other content.
+        write('Hello!!');
+        const changed = await deploy({ ...options, expectedActions: preview.targets });
+        assert.equal(changed.targets[0].error, 'changed since preview — run the preview again');
+        assert.equal(writes().length, 0, 'nothing was sent');
+
+        // An older preview without fingerprints only binds the actions.
+        const older = preview.targets.map((target) => ({
+            ...target,
+            actions: target.actions.map((action) =>
+                Object.fromEntries(Object.entries(action).filter(([key]) => key !== 'fingerprint')),
+            ),
+        }));
+        const sent = await deploy({ ...options, expectedActions: older });
+        assert.equal(sent.ok, true);
+        assert.equal(graph.wabas[2].templates[0].components[0].text, 'Hello!!');
+
+        // A fresh preview, run twice: the fingerprint is stable between runs.
+        write('Hello');
+        graph.wabas[2].templates[0].status = 'APPROVED';
+        const again = await deploy({ ...options, dryRun: true });
+        const second = await deploy({ ...options, dryRun: true });
+        assert.deepEqual(second.targets, again.targets);
+        const confirmed = await deploy({ ...options, expectedActions: again.targets });
+        assert.equal(confirmed.ok, true);
+        assert.equal(graph.wabas[2].templates[0].components[0].text, 'Hello');
+    });
+
+    it('catches a colleague editing the WABA, or a delete target recreated, after the preview', async () => {
+        const { common, graph, writes } = appSetup({
+            1: [bodyTemplate('a', 'fr', 'new'), bodyTemplate('keep', 'fr', 'K')],
+            2: [
+                bodyTemplate('a', 'fr', 'old'),
+                bodyTemplate('keep', 'fr', 'K'),
+                bodyTemplate('gone', 'fr', 'G'),
+            ],
+        });
+        const options = { ...common, fromWaba: '1', toWabas: ['2'], prune: true, yes: true };
+        const preview = await deploy({ ...options, dryRun: true });
+        assert.deepEqual(
+            preview.targets[0].actions
+                .filter((action) => action.fingerprint)
+                .map((action) => action.action),
+            ['update', 'delete'],
+        );
+
+        // A colleague edits "a" in the WABA: same action, but the live template changed.
+        graph.wabas[2].templates[0].components[0].text = 'colleague edit';
+        const edited = await deploy({ ...options, expectedActions: preview.targets });
+        assert.equal(edited.targets[0].error, 'changed since preview — run the preview again');
+        assert.equal(writes().length, 0);
+
+        // "gone" is deleted and created again under a new ID: the delete must not hit the new one.
+        graph.wabas[2].templates[0].components[0].text = 'old';
+        const fresh = await deploy({ ...options, dryRun: true });
+        const gone = graph.wabas[2].templates.find((template) => template.name === 'gone');
+        gone.id = '999';
+        const recreated = await deploy({ ...options, expectedActions: fresh.targets });
+        assert.equal(recreated.targets[0].error, 'changed since preview — run the preview again');
+        assert.equal(writes().length, 0);
+
+        // A preview with fingerprints where one action lost its own is refused, too.
+        const partial = structuredClone(fresh.targets);
+        gone.id = fresh.targets[0].actions.find((action) => action.name === 'gone').templateId;
+        delete partial[0].actions.find((action) => action.action === 'update').fingerprint;
+        const unbound = await deploy({ ...options, expectedActions: partial });
+        assert.equal(unbound.targets[0].error, 'changed since preview — run the preview again');
+        assert.equal(writes().length, 0);
+    });
+});
