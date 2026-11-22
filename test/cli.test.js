@@ -480,6 +480,52 @@ describe('wabadev check and usage', () => {
         assert.doesNotMatch(result.out, /tok-dev|wrong/);
     });
 
+    it('warns when Meta has disabled a WABA, but not for the payment error every test WABA has', async () => {
+        const p = project();
+        const paymentError = {
+            error_code: 141_006,
+            error_description: 'There is an error with the payment method.',
+        };
+        // Shapes as Meta returned them live (2026-11-22) for a disabled and a working test WABA.
+        p.graph.wabas[1].account = {
+            account_review_status: 'REJECTED',
+            health_status: {
+                can_send_message: 'BLOCKED',
+                entities: [
+                    {
+                        entity_type: 'WABA',
+                        id: '1',
+                        errors: [
+                            paymentError,
+                            { error_code: 141_014, error_description: 'The WABA is banned.' },
+                        ],
+                    },
+                ],
+            },
+        };
+        p.graph.wabas[2].account = {
+            account_review_status: 'APPROVED',
+            health_status: {
+                can_send_message: 'BLOCKED',
+                entities: [{ entity_type: 'WABA', id: '2', errors: [paymentError] }],
+            },
+        };
+        const environment = { T_DEV: 'tok-dev', T_QA: 'tok-qa', T_PROD: 'tok-prod' };
+        const report = json(await p.cli(['check', '--json'], environment));
+        assert.equal(report.ok, true);
+        assert.deepEqual(
+            report.entries.map((entry) => entry.warnings.map((warning) => warning.code)),
+            [['WABA_DISABLED'], [], [], []],
+        );
+        const text = await p.cli(['check', '--stage', 'dev'], environment);
+        assert.equal(text.code, 0);
+        assert.match(text.out, /OK\s+dev\s+WABA 1[^\n]*\n\s+WARN\s+Meta has disabled this WABA/);
+        assert.match(
+            p.graph.calls.find((call) => call.path === '/v23.0/1').query.fields,
+            /account_review_status,health_status/,
+        );
+    });
+
     it('reads tokens from .env in the project', async () => {
         const p = project();
         writeFileSync(path.join(p.cwd, '.env'), 'T_DEV=tok-dev\n');

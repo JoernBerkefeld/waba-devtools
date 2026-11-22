@@ -175,7 +175,8 @@ export function createFakeGraph({ wabas, version = 'v23.0', tokenInfo = {} }) {
             }
         }
         if (!edge && method === 'GET' && waba) {
-            return json(200, { id, name: waba.name ?? `WABA ${id}` });
+            // `account`: extra fields such as account_review_status / health_status.
+            return json(200, { id, name: waba.name ?? `WABA ${id}`, ...waba.account });
         }
         const found = findTemplate(id);
         if (found && !edge && method === 'POST') {

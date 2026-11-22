@@ -347,6 +347,13 @@ wabadev discover --token-env WABA_TOKEN_NONPROD --business 2218028909095892
 Tests for each WABA: is the token set, can the WABA be reached, can its templates be read.
 Read-only.
 
+It also warns (`WARN`, exit code still 0) when Meta has disabled the WABA. Meta keeps answering
+reads for a disabled WABA and even reports it as active. Only the account review (`REJECTED`) and
+the WABA's health error 141014 show it. With `--json`, each entry has a `warnings` list
+(`[{ "code": "WABA_DISABLED", "message": "…" }]`). Missing payment details and business
+verification do not cause a warning. Unverified test portfolios always show them, and they only
+block sending messages, which wabadev never does.
+
 ```bash
 wabadev check [--stage <stage>]
 ```
