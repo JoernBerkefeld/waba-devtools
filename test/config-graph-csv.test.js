@@ -11,7 +11,7 @@ import {
 } from '../lib/config.js';
 import { readCsvTemplates, templatesFromRows } from '../lib/csv.js';
 import { GraphError } from '../lib/errors.js';
-import { createGraphClient } from '../lib/graph.js';
+import { createGraphClient, redact } from '../lib/graph.js';
 import { bodyTemplate, createFakeGraph, createRunRoot } from './helpers.js';
 
 const run = createRunRoot();
@@ -201,6 +201,14 @@ describe('graph client', () => {
             assert.equal(ex.userMessage, 'Token [token removed] rejected');
             return true;
         });
+    });
+
+    it('keeps Meta texts readable when the token is a short value pasted by mistake', () => {
+        assert.equal(
+            redact('Unsupported get request for t (token t)', 't'),
+            'Unsupported get request for [token removed] (token [token removed])',
+        );
+        assert.equal(redact('Bad value a.b+c here', 'a.b+c'), 'Bad value [token removed] here');
     });
 
     it('refuses to follow a paging URL to another host', async () => {
