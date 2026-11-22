@@ -219,8 +219,16 @@ wabadev discover --token-env <NAME> [--business <id>]
 | `--token-env <NAME>` | **Required.** The variable that holds the token.                                 | `--token-env WABA_TOKEN_NONPROD` |
 | `--business <id>`    | The business portfolio whose WABAs to list. Needed when Meta does not name them. | `--business 2218028909095892`    |
 
-Meta usually does **not** say which WABAs a token can reach — neither for system-user tokens nor for
-the short-lived token from the app dashboard. Then `discover` needs the **business portfolio ID**: open
+Meta usually does **not** say which WABAs a token can reach:
+
+- **Tokens with access to everything:** when a token is created through Meta's login dialog (e.g.
+  **Generate access token** in the app dashboard, or a connection set up by a provider) and
+  **All current and future WhatsApp accounts** was chosen, Meta lists no single WABAs for it. Your
+  admin may have chosen this long ago — nothing needs to change, just use `--business`.
+- **System-user tokens:** Meta lists no WABAs either, even with each WABA assigned explicitly
+  (checked 2026-11).
+
+In both cases `discover` needs the **business portfolio ID**: open
 [Business settings](https://business.facebook.com/latest/settings) and copy the number after
 `business_id=` in the address bar. Listing a portfolio's WABAs needs the `business_management`
 permission, which the system-user token from [Access tokens](#access-tokens) has.

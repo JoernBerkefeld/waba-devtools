@@ -1076,6 +1076,8 @@ describe('discover through the business portfolio', () => {
                     '/v23.0/77/client_whatsapp_business_accounts',
                     { data: [{ id: '6', name: 'Client' }] },
                 ],
+                ['/v23.0/88/owned_whatsapp_business_accounts', { data: [] }],
+                ['/v23.0/88/client_whatsapp_business_accounts', { data: [] }],
                 ['/v23.0/5', { id: '5', name: 'Owned' }],
                 ['/v23.0/6', { id: '6', name: 'Client' }],
                 [
@@ -1099,7 +1101,18 @@ describe('discover through the business portfolio', () => {
                 ['6', 'Client', 0],
             ],
         );
-        await assert.rejects(discoverWabas({ token: 'EAAtest', fetchImpl }), /--business <id>/);
+        await assert.rejects(discoverWabas({ token: 'EAAtest', fetchImpl }), (error) => {
+            assert.match(error.message, /--business <id>/);
+            assert.equal(error.code, 'BUSINESS_ID_REQUIRED');
+            return true;
+        });
+        await assert.rejects(
+            discoverWabas({ token: 'EAAtest', businessId: '88', fetchImpl }),
+            (error) => {
+                assert.equal(error.code, 'BUSINESS_HAS_NO_WABAS');
+                return true;
+            },
+        );
         assert.ok(calls.includes('/v23.0/77/owned_whatsapp_business_accounts'));
     });
 });
