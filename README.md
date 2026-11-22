@@ -73,8 +73,9 @@ Official Meta documentation:
 ### Access tokens
 
 `wabadev` needs a **System User access token** from the Meta business portfolio that owns your
-WABAs. One-time setup (≈ 15 min), done by an admin of that portfolio. Meta's screens follow your
-language; German labels are given in brackets.
+WABAs. One-time setup (≈ 15 min), done by an admin of that portfolio. The labels below are Meta's
+English ones (German in brackets). Meta follows your language setting; adding `&locale=en_US` to a
+Business settings address shows it in English without changing your settings.
 
 **Before you start, note your business portfolio ID:** open
 [Business settings](https://business.facebook.com/latest/settings), check the portfolio name at the
@@ -89,26 +90,27 @@ for `wabadev discover`.
    - Business portfolio: the one that owns your WABAs. Skip the publishing requirements with
      **Next**, review, **Create app**.
 2. **Create a system user.**
-   - Open `https://business.facebook.com/latest/settings/system_users?business_id=<portfolio id>`
-     (or Business settings → **Users** → **System users** [_Nutzer → Systemnutzer_]).
+   - Open `https://business.facebook.com/latest/settings/system_users?business_id=<portfolio id>&locale=en_US`
+     (or **Settings** → **Users** → **System users** [_Nutzer → Systemnutzer_]).
    - **+ Add** [_+ Hinzufügen_] → name, e.g. `wabadev-nonprod` → role **Employee**: it then only
      sees what you assign.
 3. **Give the system user the app and the WABAs.**
    - Select the system user. **Assign assets** [_Assets zuweisen_] is hidden in the **⋯** menu
      next to **Generate token** and **Revoke tokens**.
-   - The dialog has asset types on the left. Tick, and on the right switch on **Full control**:
+   - The dialog **Select assets and assign permissions** has the asset types on the left. Tick the
+     asset, then under **Assign permissions** on the right switch on **Full control**:
      - **Apps** → your app.
      - **Messaging accounts → Linked accounts** → each WABA this token should reach. Careful: the
        separate entry **WhatsApp accounts** [_WhatsApp-Konten_] lists other objects — the WABAs
        `wabadev` works with are under _Messaging accounts_.
    - **Assign assets**. Check the tab **Assigned assets** [_Zugewiesene Assets_]: your app under
-     _Apps_ and every WABA under _Messaging accounts_, each with full access
+     _Apps_ and every WABA under _Messaging accounts_, each with **Full access**
      [_Uneingeschränkter Zugriff_].
 4. **Generate the token** — **Generate token** [_Token generieren_], four steps:
-   - **Select app** → your app.
-   - **Expiration** [_Ablaufdatum_]: pick **Never** [_Nie_]. Meta preselects _60 days_; the token
-     then simply stops working after two months.
-   - **Permissions**: `business_management` and `whatsapp_business_management`. Meta may force
+   - **Select app** [_App auswählen_] → your app → **Next**.
+   - **Set expiration** [_Ablaufdatum festlegen_]: pick **Never** [_Nie_]. Meta preselects _60 days_;
+     the token then simply stops working after two months.
+   - **Assign permissions** [_Berechtigungen zuweisen_]: `business_management` and `whatsapp_business_management`. Meta may force
      `whatsapp_business_messaging` as well — that is fine; `wabadev` never sends messages.
    - **Done**: copy the token with Meta's **Copy** button — not by selecting the text, which can copy
      parts twice. Meta shows the token only once.
