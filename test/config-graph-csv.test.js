@@ -180,6 +180,29 @@ describe('graph client', () => {
         });
     });
 
+    it('removes the token from Meta error texts that echo it', async () => {
+        const token = 'EAAtestTOKENvalue1234567890abcdef';
+        const fetchImpl = async () =>
+            Response.json(
+                {
+                    error: {
+                        message: `Malformed access token ${token}${token}`,
+                        error_user_msg: `Token EAAotherLOOKINGtoken123456789 rejected`,
+                        code: 190,
+                    },
+                },
+                { status: 400 },
+            );
+        const client = createGraphClient({ token, version: 'v23.0', fetchImpl });
+        await assert.rejects(client.listTemplates('1'), (ex) => {
+            const shown = `${ex.describe()} ${ex.message} ${ex.userMessage} ${ex.stack}`;
+            assert.doesNotMatch(shown, /EAA\w{16,}/);
+            assert.equal(ex.message, 'Malformed access token [token removed][token removed]');
+            assert.equal(ex.userMessage, 'Token [token removed] rejected');
+            return true;
+        });
+    });
+
     it('refuses to follow a paging URL to another host', async () => {
         let calls = 0;
         const fetchImpl = async () => {

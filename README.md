@@ -77,31 +77,34 @@ WABAs. One-time setup, done by an admin of that portfolio:
 
 1. **Create a Meta app.** A token always belongs to an app — you need your own, even when your
    WABAs were connected through a provider such as Salesforce.
-   - [developers.facebook.com](https://developers.facebook.com/apps) → **My Apps** → **Create
-     app**.
-   - Use case: **Connect with customers through WhatsApp**.
-   - Business portfolio: the one that owns your WABAs.
+   - [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create App** → app
+     name and e-mail.
+   - Use case: **Connect with customers through WhatsApp** → **Next**.
+   - Business portfolio: the one that owns your WABAs. Skip the publishing requirements with
+     **Next**, review, **Create app**.
+   - The WhatsApp setup is under **Use cases** (pencil icon in the left menu) → **Customize** →
+     **Quickstart** / **API Setup**. Meta calls a WABA "Messaging account" in some places.
 2. **Create a system user.**
-   - [Business settings](https://business.facebook.com/settings) → **Users** → **System users** →
-     **Add**.
+   - [Business settings](https://business.facebook.com/latest/settings) → **System users** →
+     **Add+**.
    - Name: e.g. `wabadev-nonprod`. Role: **Employee** (it then only sees what you assign).
-3. **Give the system user the app.**
-   - Click the system user → **Assign assets** → select your app → tick **Manage app** →
-     **Assign assets**.
-4. **Give the system user each WABA.**
-   - Business settings → **Accounts** → **WhatsApp accounts** → select the WABA → **People** →
-     **Add people** → the system user → **Full control**.
-   - Repeat for every WABA this token should reach.
-5. **Generate the token.**
-   - Click the system user → **Generate token** → select your app.
+3. **Give the system user the app and the WABAs.**
+   - Select the system user → **Assign assets**.
+   - Your app → under **Full control** toggle **Manage app**.
+   - Each WABA this token should reach → under **Full control** toggle **Manage WhatsApp Business
+     accounts**.
+   - **Assign assets**.
+4. **Generate the token.**
+   - Select the system user → **Generate token** → select your app.
    - Expiration: **Never** (otherwise the token stops working after the chosen time).
    - Permissions: tick **`whatsapp_business_management`** and **`business_management`**.
    - Copy the token — Meta shows it only once.
-6. **Store and test it.**
+5. **Store and test it.**
    - Put it into `.env`: `WABA_TOKEN_NONPROD=EAAG...`
-   - Run `wabadev check`.
+   - Run `wabadev discover --token-env WABA_TOKEN_NONPROD` (lists the WABAs it reaches), then
+     `wabadev check`.
 
-For production, repeat steps 2–6 with a second system user (e.g. `wabadev-prod`) that only gets the
+For production, repeat steps 2–5 with a second system user (e.g. `wabadev-prod`) that only gets the
 prod WABAs. Then a non-production token can never change production.
 
 Where the token lives:
@@ -112,7 +115,7 @@ Where the token lives:
 - Tokens are never written to files, reports or `--json` output.
 
 WABAs connected through a provider (for example Salesforce) are still owned by your portfolio, so
-your own system user can be assigned to them in step 4. `wabadev check` confirms it works.
+your own system user can be assigned to them in step 3. `wabadev check` confirms it works.
 
 ## Configuration — `.wabadevrc.json`
 
