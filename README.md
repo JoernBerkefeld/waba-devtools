@@ -92,38 +92,133 @@ for `wabadev discover`.
 2. **Create a system user.**
    - Open `https://business.facebook.com/latest/settings/system_users?business_id=<portfolio id>&locale=en_US`
      (or **Settings** → **Users** → **System users** [_Nutzer → Systemnutzer_]).
-   - **+ Add** [_+ Hinzufügen_] → name, e.g. `wabadev-nonprod` → role **Employee**: it then only
-     sees what you assign.
-3. **Give the system user the app and the WABAs.**
+   - **+ Add** [_+ Hinzufügen_] (top right). The first time, Meta asks you to accept its
+     non-discrimination policy for system users (**I accept**).
+     <details><summary>Screenshot</summary>
+
+     ![System users page with the Add button](docs/images/system-user/1-system-users-add.png)
+
+     </details>
+
+   - Name, e.g. `wabadev-nonprod`, role **Employee** — it then only sees what you assign →
+     **Create system user**.
+     <details><summary>Screenshot</summary>
+
+     ![Create system user dialog: name and role Employee](docs/images/system-user/2-create-system-user.png)
+
+     </details>
+3. **Give the system user the app and the WABAs** — as little as `wabadev` needs.
    - Select the system user. **Assign assets** [_Assets zuweisen_] is hidden in the **⋯** menu
      next to **Generate token** and **Revoke tokens**.
+     <details><summary>Screenshot</summary>
+
+     ![The ⋯ menu next to Generate token holds Assign assets](docs/images/system-user/3-assign-assets-menu.png)
+
+     </details>
+
    - The dialog **Select assets and assign permissions** has the asset types on the left. Tick the
-     asset, then under **Assign permissions** on the right switch on **Full control**:
-     - **Apps** → your app.
-     - **Messaging accounts → Linked accounts** → each WABA this token should reach. Careful: the
-       separate entry **WhatsApp accounts** [_WhatsApp-Konten_] lists other objects — the WABAs
-       `wabadev` works with are under _Messaging accounts_.
-   - **Assign assets**. Check the tab **Assigned assets** [_Zugewiesene Assets_]: your app under
-     _Apps_ and every WABA under _Messaging accounts_, each with **Full access**
-     [_Uneingeschränkter Zugriff_].
+     asset, then switch on its permission on the right:
+     - **Apps** → your app → **Partial access: Test app**. That is enough to create the token (see
+       [Why the app?](#why-does-the-system-user-need-the-app) below).
+       <details><summary>Screenshot</summary>
+
+       ![App permissions: only Test app switched on](docs/images/system-user/4-assign-app.png)
+
+       </details>
+
+     - **Messaging accounts → Linked accounts** → each WABA this token should reach →
+       **Partial access: Message templates (view and manage)**. It covers everything `wabadev`
+       does; _Everything_ would also allow sending messages and seeing payment details. Careful:
+       the separate entry **WhatsApp accounts** [_WhatsApp-Konten_] lists other objects — the WABAs
+       are under _Messaging accounts_.
+       <details><summary>Screenshot</summary>
+
+       ![Messaging accounts → Linked accounts: the WABA with Message templates (view and manage)](docs/images/system-user/5-assign-waba.png)
+
+       </details>
+
+   - **Assign assets**. Check the tab **Assigned assets** [_Zugewiesene Assets_]: your app with
+     _Partial access (Test app)_, every WABA with _Message templates (view and manage)_.
+     <details><summary>Screenshot</summary>
+
+     ![Assigned assets: the app with Test app, the WABA with Message templates](docs/images/system-user/6-assigned-assets.png)
+
+     </details>
+
 4. **Generate the token** — **Generate token** [_Token generieren_], four steps:
    - **Select app** [_App auswählen_] → your app → **Next**.
+     <details><summary>Screenshot</summary>
+
+     ![Generate token, step Select app](docs/images/system-user/7-token-select-app.png)
+
+     </details>
+
    - **Set expiration** [_Ablaufdatum festlegen_]: pick **Never** [_Nie_]. Meta preselects _60 days_;
      the token then simply stops working after two months.
-   - **Assign permissions** [_Berechtigungen zuweisen_]: `business_management` and `whatsapp_business_management`. Meta may force
-     `whatsapp_business_messaging` as well — that is fine; `wabadev` never sends messages.
+     <details><summary>Screenshot</summary>
+
+     ![Generate token, step Set expiration: Never](docs/images/system-user/8-token-expiration.png)
+
+     </details>
+
+   - **Assign permissions** [_Berechtigungen zuweisen_]: `whatsapp_business_management` only —
+     no `whatsapp_business_messaging`, as `wabadev` never sends messages. Add
+     `business_management` only if you want [`discover`](#discover) to find your WABAs (see below).
+     Then **Generate token**.
+     <details><summary>Screenshot</summary>
+
+     ![Generate token, step Assign permissions: whatsapp_business_management](docs/images/system-user/9-token-permissions.png)
+
+     </details>
+
    - **Done**: copy the token with Meta's **Copy** button — not by selecting the text, which can copy
      parts twice. Meta shows the token only once.
+
 5. **Store and test it.**
    - Put it into `.env` as **one** line: `WABA_TOKEN_NONPROD=EAA…`.
-   - Run `wabadev discover --token-env WABA_TOKEN_NONPROD --business <portfolio id>` — it lists the
-     WABAs the token reaches (see [discover](#discover)) — then `wabadev check`.
+   - Put the WABA IDs into `.wabadevrc.json`, then run `wabadev check`. The ID is under the name in
+     **Settings → Accounts → Messaging accounts**
+     (`https://business.facebook.com/latest/settings/whatsapp_account?business_id=<portfolio id>`).
+     <details><summary>Screenshot</summary>
+
+     ![Messaging accounts: the WABA ID under its name](docs/images/system-user/11-messaging-account-id.png)
+
+     </details>
+
+#### Why does the system user need the app?
+
+The WABA permission decides **what** a token may change; the app decides **whether a token can
+exist at all** — every Meta access token is issued for an app. Without an app role, **Generate
+token** lists the app but stops at _Assign permissions_ with "No permissions available — Assign an
+app role to the system user". The smallest role, **Test app**, removes that block (tested
+2026-11-22). _Manage app_ is not needed; it would let the token's owner change the app itself.
+
+<details><summary>Screenshot: Generate token without an app role</summary>
+
+![No permissions available: Assign an app role to the system user](docs/images/system-user/10-token-no-app-role.png)
+
+</details>
+
+#### What the minimal setup can and cannot do
+
+| Setup                                                                                                 | `check`, `list`, `retrieve`, `deploy`, `backup`, `compare` | `discover`                         |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------- |
+| App: Test app · WABA: Message templates (view and manage) · permission `whatsapp_business_management` | ✓                                                          | ✗                                  |
+| … plus app **Develop app** and permission `business_management`                                       | ✓                                                          | ✓ with `--business <portfolio id>` |
+
+`discover` asks Meta to describe the token; Meta answers only when the system user can develop the
+app, and it lists a portfolio's WABAs only with `business_management`. A new app may not offer
+`business_management` yet: add it in the app dashboard under **Use cases → Customize → Permissions
+and features**. If you know your WABA IDs, you do not need `discover` at all.
 
 To **revoke** a token (e.g. after it was shared by mistake): select the system user → **Revoke
 tokens** [_Tokens widerrufen_] → then generate a new one.
 
 For production, repeat steps 2–5 with a second system user (e.g. `wabadev-prod`) that only gets the
 prod WABAs. Then a non-production token can never change production.
+
+A system user only reaches WABAs of **its own** portfolio. If your WABAs sit in several portfolios,
+create a system user and token in each and give each stage the matching `tokenEnv`.
 
 Where the token lives:
 
@@ -231,7 +326,15 @@ Meta usually does **not** say which WABAs a token can reach:
 In both cases `discover` needs the **business portfolio ID**: open
 [Business settings](https://business.facebook.com/latest/settings) and copy the number after
 `business_id=` in the address bar. Listing a portfolio's WABAs needs the `business_management`
-permission, which the system-user token from [Access tokens](#access-tokens) has.
+permission, and a system user also needs the **Develop app** role — the minimal setup in
+[Access tokens](#access-tokens) has neither (see
+[What the minimal setup can and cannot do](#what-the-minimal-setup-can-and-cannot-do)). Without
+them, `discover` stops with a message naming the missing piece; enter the WABA IDs by hand
+instead (Settings → Accounts → Messaging accounts shows them).
+
+When Meta describes the token, `discover` also prints its type and expiry (`--json`:
+`tokenInfo: { type, expiresAt }`, `expiresAt` `null` for tokens that never expire) and warns about
+user tokens, which stop working within hours.
 
 ```bash
 wabadev discover --token-env WABA_TOKEN_NONPROD --business 2218028909095892
@@ -608,12 +711,21 @@ wabadev deploy --from qa --to prod --expect preview.json
 | `1`       | Something failed: a Meta error, a blocked template, a CSV row error, or a target WABA that could not be reached (incl. its token variable not being set). |
 | `2`       | Wrong usage or configuration (unknown stage, missing option, invalid config, missing token for the source WABA, …).                                       |
 
+When a command stops with an error, `--json` prints `{ "command", "ok": false, "error" }`, plus a
+stable `code` where one exists, so scripts need not match the text: `TOKEN_INVALID`,
+`TOKEN_MISSING_PERMISSION`, `TOKEN_INFO_REFUSED`, `BUSINESS_ID_REQUIRED`, `BUSINESS_HAS_NO_WABAS`
+(all from `discover`).
+
 ## Meta limits to know
 
 - Every WABA reviews its templates on its own: the same template can be approved in one WABA and
   rejected or re-categorized in another.
 - Meta limits how many templates can be created per WABA per hour, and how often approved
   templates can be edited. Deploying only what changed keeps you well below these limits.
+- A template that is still in review (`PENDING`) cannot be edited — Meta refuses it, so `wabadev`
+  shows it as `blocked` without sending.
+- Meta adds sample templates to new WABAs (`hello_world`, `jaspers_market_*`) and never lets you edit
+  or delete them. `wabadev` shows a change to them as `skipped` and keeps them with `--prune`.
 
 ## Not supported yet
 

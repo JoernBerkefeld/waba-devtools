@@ -502,4 +502,18 @@ describe('wabadev check and usage', () => {
         assert.equal((await p.cli(['--help'])).code, 0);
         assert.match((await p.cli(['--version'])).out, /^\d+\.\d+\.\d+$/);
     });
+
+    it('puts the error code into --json errors', async () => {
+        const p = project();
+        const result = await p.cli(['discover', '--token-env', 'NOT_SET', '--json'], {});
+        assert.equal(result.code, 2);
+        const report = json(result);
+        assert.equal(report.ok, false);
+        assert.match(report.error, /NOT_SET/);
+        assert.equal(report.code, undefined);
+        const invalid = await p.cli(['discover', '--token-env', 'T_DEV', '--json'], {
+            T_DEV: 'tok-none',
+        });
+        assert.equal(json(invalid).code, 'TOKEN_INVALID', invalid.out);
+    });
 });

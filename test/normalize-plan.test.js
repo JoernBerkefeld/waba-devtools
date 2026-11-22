@@ -224,6 +224,30 @@ describe('planDeploy', () => {
         assert.equal(del.action, 'delete');
         assert.equal(del.templateId, '5');
     });
+
+    it("never edits or deletes Meta's sample templates", () => {
+        const target = [
+            live(bodyTemplate('hello_world', 'en_US', 'Hello'), { id: '8' }),
+            live(bodyTemplate('jaspers_market_plain_text_v1', 'en_US', 'Welcome'), { id: '9' }),
+            live(bodyTemplate('hello_world_custom', 'en_US', 'Mine'), { id: '10' }),
+        ];
+        const [edit] = planDeploy({
+            source: [{ template: bodyTemplate('hello_world', 'en_US', 'Changed') }],
+            target,
+        });
+        assert.equal(edit.action, 'skipped');
+        assert.match(edit.note, /sample template/);
+        const pruned = planDeploy({ source: [], target, fullSet: true, prune: true });
+        assert.deepEqual(
+            pruned.map((action) => [action.name, action.action]),
+            [
+                ['hello_world', 'extra'],
+                ['jaspers_market_plain_text_v1', 'extra'],
+                ['hello_world_custom', 'delete'],
+            ],
+        );
+        assert.match(pruned[1].note, /^kept: Meta's sample template/);
+    });
 });
 
 describe('line endings', () => {

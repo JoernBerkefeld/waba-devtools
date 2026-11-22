@@ -10,9 +10,14 @@ import {
     deploy,
     discoverWabas,
     fieldChanges,
+    formatReport,
     listTemplates,
+    parseJson,
+    stripBom,
     validateConfig,
 } from '../lib/index.js';
+import { loadConfig, loadDotenvFile } from '../lib/config.js';
+import { readTemplateDirectory } from '../lib/files.js';
 import { bodyTemplate, createFakeGraph, createRunRoot } from './helpers.js';
 
 const run = createRunRoot();
@@ -95,6 +100,7 @@ describe('library API for the app', () => {
         assert.deepEqual(result, {
             command: 'discover',
             ok: true,
+            tokenInfo: { type: undefined, expiresAt: null },
             wabas: [
                 {
                     wabaId: '3',
@@ -1114,5 +1120,113 @@ describe('discover through the business portfolio', () => {
             },
         );
         assert.ok(calls.includes('/v23.0/77/owned_whatsapp_business_accounts'));
+    });
+
+    it('falls back to the portfolio when Meta refuses to describe a "Test app" token', async () => {
+        const refused = {
+            error: {
+                message:
+                    '(#100) You must provide an app access token, or a user access token that is an owner or developer of the app',
+                code: 100,
+            },
+        };
+        const fetchImpl = async (input) => {
+            const { pathname } = new URL(input);
+            const routes = new Map([
+                ['/v23.0/77/owned_whatsapp_business_accounts', { data: [{ id: '5' }] }],
+                ['/v23.0/77/client_whatsapp_business_accounts', { data: [] }],
+                ['/v23.0/5', { id: '5', name: 'Owned' }],
+                ['/v23.0/5/phone_numbers', { data: [] }],
+            ]);
+            return routes.has(pathname)
+                ? Response.json(routes.get(pathname))
+                : Response.json(refused, { status: 400 });
+        };
+        const result = await discoverWabas({ token: 'EAAtest', businessId: '77', fetchImpl });
+        assert.deepEqual(
+            result.wabas.map((waba) => [waba.wabaId, waba.name]),
+            [['5', 'Owned']],
+        );
+        await assert.rejects(discoverWabas({ token: 'EAAtest', fetchImpl }), (error) => {
+            assert.equal(error.code, 'TOKEN_INFO_REFUSED');
+            assert.match(error.message, /Develop app/);
+            return true;
+        });
+    });
+});
+
+/**
+ * Fake Graph API: debug_token describes a short-lived user token that reaches WABA 5.
+ *
+ * @param {string} input - Request URL.
+ * @returns {Promise.<Response>}
+ */
+async function userTokenFetch(input) {
+    const { pathname } = new URL(input);
+    const routes = new Map([
+        [
+            '/v23.0/debug_token',
+            {
+                data: {
+                    is_valid: true,
+                    type: 'USER',
+                    expires_at: 1_795_312_800,
+                    granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['5'] }],
+                },
+            },
+        ],
+        ['/v23.0/5', { id: '5', name: 'Owned' }],
+        ['/v23.0/5/phone_numbers', { data: [] }],
+    ]);
+    return Response.json(routes.get(pathname) ?? { error: { code: 100 } }, {
+        status: routes.has(pathname) ? 200 : 400,
+    });
+}
+
+describe('discover token info', () => {
+    it('reports type and expiry when Meta describes the token, and warns for user tokens', async () => {
+        const result = await discoverWabas({ token: 'EAAtest', fetchImpl: userTokenFetch });
+        assert.deepEqual(result.tokenInfo, {
+            type: 'USER',
+            expiresAt: new Date(1_795_312_800_000).toISOString(),
+        });
+        const text = formatReport(result).join('\n');
+        assert.match(text, /Token: USER, expires /);
+        assert.match(text, /Warning: a user token stops working/);
+    });
+});
+
+describe('files with a UTF-8 byte-order mark', () => {
+    it('reads templates, config and .env written by Windows editors', async () => {
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        const root = run.add('bom');
+        await mkdir(root);
+        const bom = '\u{FEFF}';
+        await writeFile(
+            path.join(root, '.wabadevrc.json'),
+            `${bom}${JSON.stringify({ stages: { dev: [{ wabaId: '1', tokenEnv: 'BOM_TOKEN' }] } })}`,
+        );
+        await writeFile(path.join(root, '.env'), `${bom}BOM_TOKEN=EAAbom\n`);
+        await mkdir(path.join(root, 'templates', 'bom_test'), { recursive: true });
+        await writeFile(
+            path.join(root, 'templates', 'bom_test', 'en_US.json'),
+            `${bom}${JSON.stringify({
+                name: 'bom_test',
+                language: 'en_US',
+                category: 'UTILITY',
+                components: [{ type: 'BODY', text: 'Hi' }],
+            })}`,
+        );
+        assert.equal(stripBom(`${bom}x`), 'x');
+        assert.deepEqual(parseJson(`${bom}{"a":1}`), { a: 1 });
+        const environment = {};
+        assert.deepEqual(loadDotenvFile(root, environment), ['BOM_TOKEN']);
+        assert.equal(environment.BOM_TOKEN, 'EAAbom');
+        assert.equal(loadConfig(root).stages.dev[0].wabaId, '1');
+        const templates = await readTemplateDirectory(path.join(root, 'templates'));
+        assert.deepEqual(
+            templates.map((template) => template.name),
+            ['bom_test'],
+        );
     });
 });
