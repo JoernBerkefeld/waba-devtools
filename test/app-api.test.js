@@ -1051,3 +1051,55 @@ describe('content fingerprints in the confirmed preview', () => {
         assert.equal(writes().length, 0);
     });
 });
+
+describe('discover through the business portfolio', () => {
+    it('lists the portfolio WABAs when Meta names none for the token', async () => {
+        const calls = [];
+        const fetchImpl = async (input) => {
+            const url = new URL(input);
+            calls.push(url.pathname);
+            const routes = new Map([
+                [
+                    '/v23.0/debug_token',
+                    {
+                        data: {
+                            is_valid: true,
+                            granular_scopes: [{ scope: 'whatsapp_business_management' }],
+                        },
+                    },
+                ],
+                [
+                    '/v23.0/77/owned_whatsapp_business_accounts',
+                    { data: [{ id: '5', name: 'Owned' }] },
+                ],
+                [
+                    '/v23.0/77/client_whatsapp_business_accounts',
+                    { data: [{ id: '6', name: 'Client' }] },
+                ],
+                ['/v23.0/5', { id: '5', name: 'Owned' }],
+                ['/v23.0/6', { id: '6', name: 'Client' }],
+                [
+                    '/v23.0/5/phone_numbers',
+                    { data: [{ id: 'p', display_phone_number: '+1 555', verified_name: 'Test' }] },
+                ],
+                ['/v23.0/6/phone_numbers', { data: [] }],
+            ]);
+            return Response.json(
+                routes.get(url.pathname) ?? { error: { message: 'unknown', code: 100 } },
+                {
+                    status: routes.has(url.pathname) ? 200 : 400,
+                },
+            );
+        };
+        const result = await discoverWabas({ token: 'EAAtest', businessId: '77', fetchImpl });
+        assert.deepEqual(
+            result.wabas.map((waba) => [waba.wabaId, waba.name, waba.phoneNumbers.length]),
+            [
+                ['5', 'Owned', 1],
+                ['6', 'Client', 0],
+            ],
+        );
+        await assert.rejects(discoverWabas({ token: 'EAAtest', fetchImpl }), /--business <id>/);
+        assert.ok(calls.includes('/v23.0/77/owned_whatsapp_business_accounts'));
+    });
+});

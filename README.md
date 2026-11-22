@@ -73,36 +73,52 @@ Official Meta documentation:
 ### Access tokens
 
 `wabadev` needs a **System User access token** from the Meta business portfolio that owns your
-WABAs. One-time setup, done by an admin of that portfolio:
+WABAs. One-time setup (≈ 15 min), done by an admin of that portfolio. Meta's screens follow your
+language; German labels are given in brackets.
 
-1. **Create a Meta app.** A token always belongs to an app — you need your own, even when your
-   WABAs were connected through a provider such as Salesforce.
+**Before you start, note your business portfolio ID:** open
+[Business settings](https://business.facebook.com/latest/settings), check the portfolio name at the
+top left, and copy the number after `business_id=` in the address bar. You need it in step 2 and
+for `wabadev discover`.
+
+1. **Create a Meta app** — skip if the portfolio already has one for this. A token always belongs to
+   an app, also when your WABAs were connected through a provider such as Salesforce.
    - [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create App** → app
      name and e-mail.
    - Use case: **Connect with customers through WhatsApp** → **Next**.
    - Business portfolio: the one that owns your WABAs. Skip the publishing requirements with
      **Next**, review, **Create app**.
-   - The WhatsApp setup is under **Use cases** (pencil icon in the left menu) → **Customize** →
-     **Quickstart** / **API Setup**. Meta calls a WABA "Messaging account" in some places.
 2. **Create a system user.**
-   - [Business settings](https://business.facebook.com/latest/settings) → **System users** →
-     **Add+**.
-   - Name: e.g. `wabadev-nonprod`. Role: **Employee** (it then only sees what you assign).
+   - Open `https://business.facebook.com/latest/settings/system_users?business_id=<portfolio id>`
+     (or Business settings → **Users** → **System users** [_Nutzer → Systemnutzer_]).
+   - **+ Add** [_+ Hinzufügen_] → name, e.g. `wabadev-nonprod` → role **Employee**: it then only
+     sees what you assign.
 3. **Give the system user the app and the WABAs.**
-   - Select the system user → **Assign assets**.
-   - Your app → under **Full control** toggle **Manage app**.
-   - Each WABA this token should reach → under **Full control** toggle **Manage WhatsApp Business
-     accounts**.
-   - **Assign assets**.
-4. **Generate the token.**
-   - Select the system user → **Generate token** → select your app.
-   - Expiration: **Never** (otherwise the token stops working after the chosen time).
-   - Permissions: tick **`whatsapp_business_management`** and **`business_management`**.
-   - Copy the token — Meta shows it only once.
+   - Select the system user. **Assign assets** [_Assets zuweisen_] is hidden in the **⋯** menu
+     next to **Generate token** and **Revoke tokens**.
+   - The dialog has asset types on the left. Tick, and on the right switch on **Full control**:
+     - **Apps** → your app.
+     - **Messaging accounts → Linked accounts** → each WABA this token should reach. Careful: the
+       separate entry **WhatsApp accounts** [_WhatsApp-Konten_] lists other objects — the WABAs
+       `wabadev` works with are under _Messaging accounts_.
+   - **Assign assets**. Check the tab **Assigned assets** [_Zugewiesene Assets_]: your app under
+     _Apps_ and every WABA under _Messaging accounts_, each with full access
+     [_Uneingeschränkter Zugriff_].
+4. **Generate the token** — **Generate token** [_Token generieren_], four steps:
+   - **Select app** → your app.
+   - **Expiration** [_Ablaufdatum_]: pick **Never** [_Nie_]. Meta preselects _60 days_; the token
+     then simply stops working after two months.
+   - **Permissions**: `business_management` and `whatsapp_business_management`. Meta may force
+     `whatsapp_business_messaging` as well — that is fine; `wabadev` never sends messages.
+   - **Done**: copy the token with Meta's **Copy** button — not by selecting the text, which can copy
+     parts twice. Meta shows the token only once.
 5. **Store and test it.**
-   - Put it into `.env`: `WABA_TOKEN_NONPROD=EAAG...`
-   - Run `wabadev discover --token-env WABA_TOKEN_NONPROD` (lists the WABAs it reaches), then
-     `wabadev check`.
+   - Put it into `.env` as **one** line: `WABA_TOKEN_NONPROD=EAA…`.
+   - Run `wabadev discover --token-env WABA_TOKEN_NONPROD --business <portfolio id>` — it lists the
+     WABAs the token reaches (see [discover](#discover)) — then `wabadev check`.
+
+To **revoke** a token (e.g. after it was shared by mistake): select the system user → **Revoke
+tokens** [_Tokens widerrufen_] → then generate a new one.
 
 For production, repeat steps 2–5 with a second system user (e.g. `wabadev-prod`) that only gets the
 prod WABAs. Then a non-production token can never change production.
@@ -193,15 +209,22 @@ Shows every WABA an access token can manage — with its name and phone numbers.
 `.wabadevrc.json`. Needs no config file, only the token in an environment variable (or `.env`).
 
 ```bash
-wabadev discover --token-env <NAME>
+wabadev discover --token-env <NAME> [--business <id>]
 ```
 
-| Option               | Meaning                                          | Example                          |
-| -------------------- | ------------------------------------------------ | -------------------------------- |
-| `--token-env <NAME>` | **Required.** The variable that holds the token. | `--token-env WABA_TOKEN_NONPROD` |
+| Option               | Meaning                                                                          | Example                          |
+| -------------------- | -------------------------------------------------------------------------------- | -------------------------------- |
+| `--token-env <NAME>` | **Required.** The variable that holds the token.                                 | `--token-env WABA_TOKEN_NONPROD` |
+| `--business <id>`    | The business portfolio whose WABAs to list. Needed when Meta does not name them. | `--business 2218028909095892`    |
+
+Meta usually does **not** say which WABAs a token can reach — neither for system-user tokens nor for
+the short-lived token from the app dashboard. Then `discover` needs the **business portfolio ID**: open
+[Business settings](https://business.facebook.com/latest/settings) and copy the number after
+`business_id=` in the address bar. Listing a portfolio's WABAs needs the `business_management`
+permission, which the system-user token from [Access tokens](#access-tokens) has.
 
 ```bash
-wabadev discover --token-env WABA_TOKEN_NONPROD
+wabadev discover --token-env WABA_TOKEN_NONPROD --business 2218028909095892
 #   WABA 111111111111111  Acme Dev  +1 555 0100 (Acme)
 #   WABA 222222222222222  Acme QA   +1 555 0101 (Acme)
 ```
