@@ -63,7 +63,7 @@ function project(templates = {}) {
 
 const json = (result) => JSON.parse(result.out);
 
-describe('wabadev retrieve / deploy', () => {
+describe('waba retrieve / deploy', () => {
     it('retrieves into files and deploys them to every WABA of a stage', async () => {
         const p = project({
             1: [
@@ -310,7 +310,7 @@ function setup() {
     });
 }
 
-describe('wabadev --prune', () => {
+describe('waba --prune', () => {
     it('is refused with -m, with --csv and with an empty source', async () => {
         const p = setup();
         assert.match(
@@ -394,7 +394,7 @@ describe('wabadev --prune', () => {
     });
 });
 
-describe('wabadev import / deploy --csv', () => {
+describe('waba import / deploy --csv', () => {
     const csv = [
         'Brand,Template name,Category,Meta Template,Language,Examples',
         'Acme,greet,Utility,Hello {{1}},en_US,Jane',
@@ -459,7 +459,7 @@ describe('wabadev import / deploy --csv', () => {
     });
 });
 
-describe('wabadev check and usage', () => {
+describe('waba check and usage', () => {
     it('reports a missing token variable and a rejected token per WABA, read-only', async () => {
         const p = project();
         const result = await p.cli(['check', '--json'], { T_DEV: 'tok-dev', T_QA: 'wrong' });

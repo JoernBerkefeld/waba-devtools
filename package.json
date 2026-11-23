@@ -1,7 +1,7 @@
 {
     "name": "waba-devtools",
     "version": "0.1.0",
-    "description": "WABA DevTools (wabadev) — retrieve, import from CSV and deploy WhatsApp Business message templates across WABAs and pipeline stages",
+    "description": "WABA DevTools (waba) — retrieve, import from CSV and deploy WhatsApp Business message templates across WABAs and pipeline stages",
     "author": "Jörn Berkefeld <joern.berkefeld@gmail.com>",
     "license": "MIT",
     "repository": {
@@ -24,7 +24,7 @@
     ],
     "type": "module",
     "bin": {
-        "wabadev": "./bin/wabadev.js"
+        "waba": "./bin/waba.js"
     },
     "main": "./lib/index.js",
     "exports": {

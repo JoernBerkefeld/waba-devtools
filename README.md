@@ -1,4 +1,4 @@
-# WABA DevTools (`wabadev`)
+# WABA DevTools (`waba`)
 
 Retrieve and deploy or bulk-CSV-import **WhatsApp Business message templates** across several WhatsApp
 Business Accounts (WABAs) — for example one WABA per pipeline stage (dev → qa → prod).
@@ -14,7 +14,7 @@ It talks to Meta's Graph API directly and needs no other tool.
 
 ```bash
 npm install -g waba-devtools
-wabadev --help
+waba --help
 ```
 
 Node.js `^22.22.2 || >=24.15.0`.
@@ -25,7 +25,7 @@ Before you start, you need:
 
 - the **WABA IDs** — shown in
   [Business settings](https://business.facebook.com/settings) → **Accounts** → **WhatsApp
-  accounts**, or found for you by [`wabadev discover`](#discover) once you have a token;
+  accounts**, or found for you by [`waba discover`](#discover) once you have a token;
 - an **access token** per environment — see [Access tokens](#access-tokens) for the steps.
 
 Official Meta documentation:
@@ -64,15 +64,18 @@ Official Meta documentation:
 3. Check access, retrieve, preview, deploy:
 
    ```bash
-   npx wabadev check
-   npx wabadev retrieve --from dev
-   npx wabadev deploy --to qa --dry-run
-   npx wabadev deploy --to qa
+   waba check
+   waba retrieve --from dev
+   waba deploy --to qa --dry-run
+   waba deploy --to qa
    ```
+
+   Without a global install, use `npx -p waba-devtools waba check`. Plain `npx waba` could fetch an
+   unrelated npm package named `waba` instead.
 
 ### Access tokens
 
-`wabadev` needs a **System User access token** from the Meta business portfolio that owns your
+`waba` needs a **System User access token** from the Meta business portfolio that owns your
 WABAs. One-time setup (≈ 15 min), done by an admin of that portfolio. The labels below are Meta's
 English ones (German in brackets). Meta follows your language setting; adding `&locale=en_US` to a
 Business settings address shows it in English without changing your settings.
@@ -80,7 +83,7 @@ Business settings address shows it in English without changing your settings.
 **Before you start, note your business portfolio ID:** open
 [Business settings](https://business.facebook.com/latest/settings), check the portfolio name at the
 top left, and copy the number after `business_id=` in the address bar. You need it in step 2 and
-for `wabadev discover`.
+for `waba discover`.
 
 1. **Create a Meta app** — skip if the portfolio already has one for this. A token always belongs to
    an app, also when your WABAs were connected through a provider such as Salesforce.
@@ -107,7 +110,7 @@ for `wabadev discover`.
      ![Create system user dialog: name and role Employee](docs/images/system-user/2-create-system-user.png)
 
      </details>
-3. **Give the system user the app and the WABAs** — as little as `wabadev` needs.
+3. **Give the system user the app and the WABAs** — as little as `waba` needs.
    - Select the system user. **Assign assets** [_Assets zuweisen_] is hidden in the **⋯** menu
      next to **Generate token** and **Revoke tokens**.
      <details><summary>Screenshot</summary>
@@ -127,7 +130,7 @@ for `wabadev discover`.
        </details>
 
      - **Messaging accounts → Linked accounts** → each WABA this token should reach →
-       **Partial access: Message templates (view and manage)**. It covers everything `wabadev`
+       **Partial access: Message templates (view and manage)**. It covers everything `waba`
        does; _Everything_ would also allow sending messages and seeing payment details. Careful:
        the separate entry **WhatsApp accounts** [_WhatsApp-Konten_] lists other objects — the WABAs
        are under _Messaging accounts_.
@@ -162,7 +165,7 @@ for `wabadev discover`.
      </details>
 
    - **Assign permissions** [_Berechtigungen zuweisen_]: `whatsapp_business_management` only —
-     no `whatsapp_business_messaging`, as `wabadev` never sends messages. Add
+     no `whatsapp_business_messaging`, as `waba` never sends messages. Add
      `business_management` only if you want [`discover`](#discover) to find your WABAs (see below).
      Then **Generate token**.
      <details><summary>Screenshot</summary>
@@ -176,7 +179,7 @@ for `wabadev discover`.
 
 5. **Store and test it.**
    - Put it into `.env` as **one** line: `WABA_TOKEN_NONPROD=EAA…`.
-   - Put the WABA IDs into `.wabadevrc.json`, then run `wabadev check`. The ID is under the name in
+   - Put the WABA IDs into `.wabadevrc.json`, then run `waba check`. The ID is under the name in
      **Settings → Accounts → Messaging accounts**
      (`https://business.facebook.com/latest/settings/whatsapp_account?business_id=<portfolio id>`).
      <details><summary>Screenshot</summary>
@@ -222,13 +225,13 @@ create a system user and token in each and give each stage the matching `tokenEn
 
 Where the token lives:
 
-- **Locally:** a `.env` file in the project folder. `wabadev` loads it on start; variables that are
+- **Locally:** a `.env` file in the project folder. `waba` loads it on start; variables that are
   already set in your shell win.
 - **CI/CD:** a secret of your pipeline, exposed as the environment variable named in `tokenEnv`.
 - Tokens are never written to files, reports or `--json` output.
 
 WABAs connected through a provider (for example Salesforce) are still owned by your portfolio, so
-your own system user can be assigned to them in step 3. `wabadev check` confirms it works.
+your own system user can be assigned to them in step 3. `waba check` confirms it works.
 
 ## Configuration — `.wabadevrc.json`
 
@@ -294,11 +297,11 @@ Typical flow: edit or `retrieve` the files → commit to git → `deploy` them s
 
 Options that work with every command:
 
-| Option          | Meaning                                   | Example                |
-| --------------- | ----------------------------------------- | ---------------------- |
-| `--json`        | Print the result as JSON (for CI/scripts) | `wabadev check --json` |
-| `-h, --help`    | Show the help                             | `wabadev --help`       |
-| `-v, --version` | Show the installed version                | `wabadev --version`    |
+| Option          | Meaning                                   | Example             |
+| --------------- | ----------------------------------------- | ------------------- |
+| `--json`        | Print the result as JSON (for CI/scripts) | `waba check --json` |
+| `-h, --help`    | Show the help                             | `waba --help`       |
+| `-v, --version` | Show the installed version                | `waba --version`    |
 
 ### `discover`
 
@@ -306,7 +309,7 @@ Shows every WABA an access token can manage — with its name and phone numbers.
 `.wabadevrc.json`. Needs no config file, only the token in an environment variable (or `.env`).
 
 ```bash
-wabadev discover --token-env <NAME> [--business <id>]
+waba discover --token-env <NAME> [--business <id>]
 ```
 
 | Option               | Meaning                                                                          | Example                          |
@@ -337,7 +340,7 @@ When Meta describes the token, `discover` also prints its type and expiry (`--js
 user tokens, which stop working within hours.
 
 ```bash
-wabadev discover --token-env WABA_TOKEN_NONPROD --business 2218028909095892
+waba discover --token-env WABA_TOKEN_NONPROD --business 2218028909095892
 #   WABA 111111111111111  Acme Dev  +1 555 0100 (Acme)
 #   WABA 222222222222222  Acme QA   +1 555 0101 (Acme)
 ```
@@ -352,19 +355,19 @@ reads for a disabled WABA and even reports it as active. Only the account review
 the WABA's health error 141014 show it. With `--json`, each entry has a `warnings` list
 (`[{ "code": "WABA_DISABLED", "message": "…" }]`). Missing payment details and business
 verification do not cause a warning. Unverified test portfolios always show them, and they only
-block sending messages, which wabadev never does.
+block sending messages, which waba never does.
 
 ```bash
-wabadev check [--stage <stage>]
+waba check [--stage <stage>]
 ```
 
-| Option            | Meaning                                        | Example                    |
-| ----------------- | ---------------------------------------------- | -------------------------- |
-| `--stage <stage>` | Only check this stage. Without it: all stages. | `wabadev check --stage qa` |
+| Option            | Meaning                                        | Example                 |
+| ----------------- | ---------------------------------------------- | ----------------------- |
+| `--stage <stage>` | Only check this stage. Without it: all stages. | `waba check --stage qa` |
 
 ```bash
-wabadev check              # all stages
-wabadev check --stage prod # only the prod WABAs
+waba check              # all stages
+waba check --stage prod # only the prod WABAs
 ```
 
 ### `list`
@@ -373,7 +376,7 @@ Lists the templates of one or more WABAs: name, language, category and status. F
 template content and writes no files.
 
 ```bash
-wabadev list --from <stage> | --from-waba <id> | --to <stage> | --to-waba <id>…
+waba list --from <stage> | --from-waba <id> | --to <stage> | --to-waba <id>…
 ```
 
 | Option             | Meaning                       | Example                       |
@@ -384,8 +387,8 @@ wabadev list --from <stage> | --from-waba <id> | --to <stage> | --to-waba <id>�
 | `--to-waba <id>`   | These WABAs. Repeat for more. | `--to-waba 1… --to-waba 2…`   |
 
 ```bash
-wabadev list --to prod          # all prod WABAs
-wabadev list --from dev --json  # for scripts
+waba list --to prod          # all prod WABAs
+waba list --from dev --json  # for scripts
 ```
 
 ### `compare`
@@ -406,9 +409,9 @@ there is no time order: you choose which WABA is "before" and which is "after" (
 after: "what would change in prod").
 
 ```bash
-wabadev compare <backup set> <backup set> [--json]
-wabadev compare <backup set> --live [--waba <id>] [--json]
-wabadev compare --before-waba <id> --after-waba <id> [--json]
+waba compare <backup set> <backup set> [--json]
+waba compare <backup set> --live [--waba <id>] [--json]
+waba compare --before-waba <id> --after-waba <id> [--json]
 ```
 
 | Option               | Meaning                                                 | Example                         |
@@ -421,7 +424,7 @@ wabadev compare --before-waba <id> --after-waba <id> [--json]
 In `--json` output the two sides are `before` and `after` (for two backups: the older and the newer one).
 
 ```bash
-wabadev compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_2026-11-20T18-26-04-123Z_after
+waba compare backups/444…_2026-11-20T18-26-04-123Z_before backups/444…_2026-11-20T18-26-04-123Z_after
 #   Before: WABA 444444444444444 (prod) backup 2026-11-20T18:26:04.512Z before
 #   After:  WABA 444444444444444 (prod) backup 2026-11-20T18:26:09.871Z after
 #   Added (1):
@@ -441,7 +444,7 @@ Saves a restore point **now**, without deploying anything: one backup set per WA
 `<wabaId>_<time>_manual` (see [Backups](#backups)).
 
 ```bash
-wabadev backup --stage <stage> | --waba <id>… --backup <folder> [--json]
+waba backup --stage <stage> | --waba <id>… --backup <folder> [--json]
 ```
 
 | Option              | Meaning                                 | Example                  |
@@ -451,7 +454,7 @@ wabadev backup --stage <stage> | --waba <id>… --backup <folder> [--json]
 | `--backup <folder>` | **Required.** Where the backup sets go. | `--backup backups`       |
 
 ```bash
-wabadev backup --stage prod --backup backups
+waba backup --stage prod --backup backups
 ```
 
 ### `retrieve`
@@ -460,7 +463,7 @@ Downloads the templates of one WABA into `templates/<name>/<language>.json`. Com
 git.
 
 ```bash
-wabadev retrieve --from <stage> | --from-waba <id> [-m <name>]
+waba retrieve --from <stage> | --from-waba <id> [-m <name>]
 ```
 
 | Option                  | Meaning                                                                              | Example                       |
@@ -473,9 +476,9 @@ Give `--from` or `--from-waba` (or both). A stage with several WABAs needs `--fr
 it, retrieve stops with an error and writes nothing.
 
 ```bash
-wabadev retrieve --from dev                   # all templates of dev
-wabadev retrieve --from dev -m order_shipped  # just one template
-wabadev retrieve --from-waba 333333333333333  # one WABA of prod
+waba retrieve --from dev                   # all templates of dev
+waba retrieve --from dev -m order_shipped  # just one template
+waba retrieve --from-waba 333333333333333  # one WABA of prod
 ```
 
 Good to know:
@@ -489,7 +492,7 @@ Good to know:
 Reads a CSV file and writes one template file per row. Nothing is sent to Meta.
 
 ```bash
-wabadev import --csv <file>
+waba import --csv <file>
 ```
 
 | Option         | Meaning                             | Example                   |
@@ -497,7 +500,7 @@ wabadev import --csv <file>
 | `--csv <file>` | **Required.** The CSV file to read. | `--csv exports/sheet.csv` |
 
 ```bash
-wabadev import --csv sheet.csv
+waba import --csv sheet.csv
 ```
 
 Good to know:
@@ -546,7 +549,7 @@ Makes the target WABAs match the source: creates missing templates and updates
 changed ones. Everything else is left alone.
 
 ```bash
-wabadev deploy <target> [<source> | --csv <file>] [-m <name>] [--dry-run] [--prune [--yes]]
+waba deploy <target> [<source> | --csv <file>] [-m <name>] [--dry-run] [--prune [--yes]]
 
 # <target>: --to <stage> and/or --to-waba <id>…
 # <source>: --from <stage> and/or --from-waba <id> (default: the template files)
@@ -554,11 +557,11 @@ wabadev deploy <target> [<source> | --csv <file>] [-m <name>] [--dry-run] [--pru
 
 Where the templates come from:
 
-| Source                   | Command                                  | Uses the files on disk?                                  |
-| ------------------------ | ---------------------------------------- | -------------------------------------------------------- |
-| Template files (default) | `wabadev deploy --to qa`                 | Yes — reads `templates/`                                 |
-| Another WABA             | `wabadev deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
-| A CSV file               | `wabadev deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
+| Source                   | Command                               | Uses the files on disk?                                  |
+| ------------------------ | ------------------------------------- | -------------------------------------------------------- |
+| Template files (default) | `waba deploy --to qa`                 | Yes — reads `templates/`                                 |
+| Another WABA             | `waba deploy --from dev --to qa`      | No — live clone from WABA to WABA, files are not touched |
+| A CSV file               | `waba deploy --csv sheet.csv --to qa` | No — reads the CSV, files are not touched                |
 
 | Option                  | Meaning                                                                                                 | Example                                            |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
@@ -577,22 +580,22 @@ Where the templates come from:
 | `--from-dir <folder>`   | Source: template files in this folder instead of `templates/` — e.g. a backup set.                      | `--from-dir backups/444…_2026-11-20T18-26-04-123Z` |
 
 ```bash
-wabadev deploy --to qa --dry-run                 # preview
-wabadev deploy --to qa                           # all files → every qa WABA
-wabadev deploy --to prod -m order_shipped        # one template only
-wabadev deploy --from qa --to prod               # copy qa → prod
-wabadev deploy --csv sheet.csv --to dev          # CSV → dev, no files needed
-wabadev deploy --from qa --to prod --prune --dry-run  # preview, incl. what would be deleted
-wabadev deploy --from qa --to prod --prune --yes      # copy and delete the extras
-wabadev deploy --to-waba 444444444444444         # files → one WABA only
+waba deploy --to qa --dry-run                 # preview
+waba deploy --to qa                           # all files → every qa WABA
+waba deploy --to prod -m order_shipped        # one template only
+waba deploy --from qa --to prod               # copy qa → prod
+waba deploy --csv sheet.csv --to dev          # CSV → dev, no files needed
+waba deploy --from qa --to prod --prune --dry-run  # preview, incl. what would be deleted
+waba deploy --from qa --to prod --prune --yes      # copy and delete the extras
+waba deploy --to-waba 444444444444444         # files → one WABA only
 
 # One WABA to one other WABA — any stages:
-wabadev deploy --from-waba 333333333333333 --to-waba 444444444444444
+waba deploy --from-waba 333333333333333 --to-waba 444444444444444
 ```
 
 #### Picking WABAs
 
-You can name WABAs directly with `--from-waba` / `--to-waba`. `wabadev` looks each one up in
+You can name WABAs directly with `--from-waba` / `--to-waba`. `waba` looks each one up in
 `.wabadevrc.json` to find its token:
 
 | The WABA is listed in…                       | Result                                       |
@@ -651,8 +654,8 @@ overwritten. If a set cannot be written, nothing is sent to that WABA. WABAs wit
 set.
 
 ```bash
-wabadev deploy --from qa --to prod --backup backups                  # before only
-wabadev deploy --from qa --to prod --backup backups --backup-after   # before and after
+waba deploy --from qa --to prod --backup backups                  # before only
+waba deploy --from qa --to prod --backup backups --backup-after   # before and after
 ```
 
 `manifest.json` is written automatically: it lets you (and the desktop app) see what a set contains,
@@ -661,8 +664,8 @@ when and from where it was taken, and each template's status at that moment.
 To restore, deploy a set back with `--from-dir` (add `-m <name>` to restore only some templates):
 
 ```bash
-wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444 --dry-run
-wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444
+waba deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444 --dry-run
+waba deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_before --to-waba 444444444444444
 ```
 
 - A restore is an edit too: Meta reviews the templates again and counts it against its edit limits.
@@ -670,7 +673,7 @@ wabadev deploy --from-dir backups/444444444444444_2026-11-20T18-26-04-123Z_befor
 - Media, authentication and carousel templates are saved, but cannot be restored (`skipped`).
 - `--backup` does nothing together with `--dry-run`; `--backup-after` needs `--backup`.
 - If the after-backup fails, the changes stay sent; the report shows a WARNING.
-- Restore points without a deployment: [`wabadev backup`](#backup) (sets named `…_manual`).
+- Restore points without a deployment: [`waba backup`](#backup) (sets named `…_manual`).
 
 #### Confirmed preview
 
@@ -679,8 +682,8 @@ Between a preview and the real run, someone else may change a WABA. With `--expe
 it to the real deploy with the same options.
 
 ```bash
-wabadev deploy --from qa --to prod --dry-run --json > preview.json
-wabadev deploy --from qa --to prod --expect preview.json
+waba deploy --from qa --to prod --dry-run --json > preview.json
+waba deploy --from qa --to prod --expect preview.json
 ```
 
 - For each WABA, the creates, updates and deletes (by name and language) must be exactly the ones in
@@ -729,10 +732,10 @@ stable `code` where one exists, so scripts need not match the text: `TOKEN_INVAL
   rejected or re-categorized in another.
 - Meta limits how many templates can be created per WABA per hour, and how often approved
   templates can be edited. Deploying only what changed keeps you well below these limits.
-- A template that is still in review (`PENDING`) cannot be edited — Meta refuses it, so `wabadev`
+- A template that is still in review (`PENDING`) cannot be edited — Meta refuses it, so `waba`
   shows it as `blocked` without sending.
 - Meta adds sample templates to new WABAs (`hello_world`, `jaspers_market_*`) and never lets you edit
-  or delete them. `wabadev` shows a change to them as `skipped` and keeps them with `--prune`.
+  or delete them. `waba` shows a change to them as `skipped` and keeps them with `--prune`.
 
 ## Not supported yet
 

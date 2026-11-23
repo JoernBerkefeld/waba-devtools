@@ -197,7 +197,7 @@ describe('library API for the app', () => {
     });
 });
 
-describe('wabadev list / discover', () => {
+describe('waba list / discover', () => {
     it('list prints templates per WABA; discover needs only the token variable', async () => {
         const { graph } = appSetup({ 3: [bodyTemplate('x', 'fr', 'X')] });
         const cwd = run.add('no-config');
@@ -341,7 +341,7 @@ describe('backups and restore', () => {
     });
 });
 
-describe('wabadev deploy --backup / --from-dir', () => {
+describe('waba deploy --backup / --from-dir', () => {
     it('backs up through the CLI and restores with --from-dir', async () => {
         const { mkdirSync, writeFileSync, readdirSync } = await import('node:fs');
         const { graph } = appSetup({
@@ -531,7 +531,7 @@ describe('after-backups and comparing restore points', () => {
         await assert.rejects(compareBackups(root, path.join(root, 'old')), /is not a backup set/);
     });
 
-    it('wabadev compare prints the field changes', async () => {
+    it('waba compare prints the field changes', async () => {
         const { result } = await runWithBothBackups();
         const [{ backup, backupAfter }] = result.targets;
         const out = [];
@@ -605,7 +605,7 @@ describe('manual restore points and comparing with the live WABA', () => {
         );
     });
 
-    it('wabadev backup and wabadev compare --live', async () => {
+    it('waba backup and waba compare --live', async () => {
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')] });
         const cwd = run.add('cli-manual');
@@ -701,7 +701,7 @@ describe('compare field details', () => {
 });
 
 describe('review fixes: backup text, two-token WABAs, after-backup rule', () => {
-    it('prints readable lines for wabadev backup', async () => {
+    it('prints readable lines for waba backup', async () => {
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')] });
         const cwd = run.add('cli-backup-text');
@@ -838,7 +838,7 @@ describe('comparing two WABAs live', () => {
         );
     });
 
-    it('wabadev compare --before-waba --after-waba', async () => {
+    it('waba compare --before-waba --after-waba', async () => {
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { graph } = appSetup({ 2: [bodyTemplate('a', 'fr', 'A')], 3: [] });
         const cwd = run.add('cli-two-live');
@@ -914,7 +914,7 @@ describe('independent before/after backups', () => {
     });
 });
 
-describe('wabadev deploy --expect', () => {
+describe('waba deploy --expect', () => {
     it('sends only what the saved preview showed', async () => {
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { graph } = appSetup({ 1: [bodyTemplate('a', 'fr', 'A')], 2: [], 3: [] });
